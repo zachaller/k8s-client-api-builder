@@ -2,6 +2,7 @@ package dsl
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -556,6 +557,324 @@ func TestEvaluateStringWithInlineIf(t *testing.T) {
 
 			if !tt.wantErr && result != tt.expected {
 				t.Errorf("EvaluateString() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestStringFunctions(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		data     interface{}
+		expected interface{}
+		wantErr  bool
+	}{
+		{
+			name: "lower function",
+			expr: "lower(.metadata.name)",
+			data: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "MyApp",
+				},
+			},
+			expected: "myapp",
+		},
+		{
+			name: "upper function",
+			expr: "upper(.metadata.name)",
+			data: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "myapp",
+				},
+			},
+			expected: "MYAPP",
+		},
+		{
+			name: "trim function",
+			expr: "trim(.spec.value)",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"value": "  spaces around  ",
+				},
+			},
+			expected: "spaces around",
+		},
+		{
+			name: "replace function",
+			expr: "replace(.spec.url, \"http\", \"https\")",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"url": "http://example.com",
+				},
+			},
+			expected: "https://example.com",
+		},
+		{
+			name: "sha256 function",
+			expr: "sha256(.spec.image)",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"image": "nginx:latest",
+				},
+			},
+			expected: "4c0d44a73c3d4c0e90e9f5f6d5c1e3a6e2b1f0c9d8e7f6a5b4c3d2e1f0a9b8c7", // Not the actual hash, just example format
+			wantErr:  false, // Just verify it returns a string, not the exact hash
+		},
+		{
+			name: "default function with value",
+			expr: "default(.spec.name, \"fallback\")",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"name": "actual",
+				},
+			},
+			expected: "actual",
+		},
+		{
+			name: "default function with empty string",
+			expr: "default(.spec.name, \"fallback\")",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"name": "",
+				},
+			},
+			expected: "fallback",
+		},
+		{
+			name: "default function with missing field",
+			expr: "default(.spec.missing, \"fallback\")",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"name": "test",
+				},
+			},
+			expected: "fallback",
+			wantErr:  true, // Will error on missing field before default is called
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := ParseExpression(tt.expr)
+			if err != nil {
+				if !tt.wantErr {
+					t.Fatalf("ParseExpression() error = %v", err)
+				}
+				return
+			}
+
+			evaluator := NewEvaluator(tt.data)
+			result, err := evaluator.Evaluate(expr)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Evaluate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// For sha256, just check it's a string of the right length
+			if tt.name == "sha256 function" {
+				if str, ok := result.(string); ok && len(str) == 64 {
+					return // Valid sha256 hash
+				}
+				t.Errorf("sha256() result is not a valid hash: %v", result)
+				return
+			}
+
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("Evaluate() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestComparisonOperators(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		data     interface{}
+		expected interface{}
+	}{
+		{
+			name: "not equal true",
+			expr: ".spec.type != \"production\"",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"type": "staging",
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "not equal false",
+			expr: ".spec.type != \"production\"",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"type": "production",
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "greater than or equal (greater)",
+			expr: ".spec.replicas >= 3",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"replicas": 5,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "greater than or equal (equal)",
+			expr: ".spec.replicas >= 3",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"replicas": 3,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "greater than or equal (less)",
+			expr: ".spec.replicas >= 3",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"replicas": 1,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "less than or equal (less)",
+			expr: ".spec.count <= 10",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"count": 5,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "less than or equal (equal)",
+			expr: ".spec.count <= 10",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"count": 10,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "less than or equal (greater)",
+			expr: ".spec.count <= 10",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"count": 15,
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := ParseExpression(tt.expr)
+			if err != nil {
+				t.Fatalf("ParseExpression() error = %v", err)
+			}
+
+			evaluator := NewEvaluator(tt.data)
+			result, err := evaluator.Evaluate(expr)
+
+			if err != nil {
+				t.Fatalf("Evaluate() error = %v", err)
+			}
+
+			if result != tt.expected {
+				t.Errorf("Evaluate() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestEdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		expr    string
+		data    interface{}
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "division by zero",
+			expr: ".spec.value / 0",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"value": 10,
+				},
+			},
+			wantErr: true,
+			errMsg:  "division by zero",
+		},
+		{
+			name: "modulo by zero",
+			expr: ".spec.value % 0",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"value": 10,
+				},
+			},
+			wantErr: true,
+			errMsg:  "modulo by zero",
+		},
+		{
+			name: "negative array index",
+			expr: ".items[-1]",
+			data: map[string]interface{}{
+				"items": []interface{}{"a", "b", "c"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "unknown function",
+			expr: "unknownFunc(.spec.name)",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"name": "test",
+				},
+			},
+			wantErr: true,
+			errMsg:  "unknown function",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := ParseExpression(tt.expr)
+			if err != nil && !tt.wantErr {
+				t.Fatalf("ParseExpression() error = %v", err)
+			}
+			if err != nil {
+				return // Parse error is expected for some tests
+			}
+
+			evaluator := NewEvaluator(tt.data)
+			_, err = evaluator.Evaluate(expr)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Evaluate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantErr && err != nil && tt.errMsg != "" {
+				if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Evaluate() error = %v, want error containing %q", err, tt.errMsg)
+				}
 			}
 		})
 	}
