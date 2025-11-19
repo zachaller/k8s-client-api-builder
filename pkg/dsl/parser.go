@@ -540,7 +540,7 @@ func findOperatorPosition(expr string, operator string) int {
 	return -1
 }
 
-// ParseForLoop parses a for loop expression like "item in .spec.items"
+// ParseForLoop parses a for loop expression like "item in .spec.items" or "port in container.ports"
 func ParseForLoop(expr string) (varName string, iterPath string, err error) {
 	parts := strings.Split(expr, " in ")
 	if len(parts) != 2 {
@@ -550,8 +550,10 @@ func ParseForLoop(expr string) (varName string, iterPath string, err error) {
 	varName = strings.TrimSpace(parts[0])
 	iterPath = strings.TrimSpace(parts[1])
 
-	if !strings.HasPrefix(iterPath, ".") {
-		return "", "", fmt.Errorf("iteration path must start with '.': %s", iterPath)
+	// Iteration path can start with '.' (root path) or be a loop variable reference
+	// Examples: ".spec.items" or "container.ports"
+	if !strings.HasPrefix(iterPath, ".") && !isIdentifier(strings.Split(iterPath, ".")[0]) {
+		return "", "", fmt.Errorf("iteration path must start with '.' or be a variable reference: %s", iterPath)
 	}
 
 	return varName, iterPath, nil

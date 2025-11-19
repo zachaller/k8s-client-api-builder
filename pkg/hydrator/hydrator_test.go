@@ -446,3 +446,215 @@ func TestFindTemplate(t *testing.T) {
 		t.Errorf("expected empty string for non-existent template, got %s", notFound)
 	}
 }
+
+func TestNestedLoops(t *testing.T) {
+	h := NewHydrator("", false)
+
+	tests := []struct {
+		name          string
+		key           string
+		value         interface{}
+		context       map[string]interface{}
+		expectedCount int
+		checkResult   func(t *testing.T, result []interface{})
+	}{
+		{
+			name: "nested loop - containers with ports",
+			key:  "$for(container in .spec.containers):",
+			value: map[string]interface{}{
+				"name": "$(container.name)",
+				"ports": map[string]interface{}{
+					"$for(port in container.ports):": map[string]interface{}{
+						"containerPort": "$(port)",
+					},
+				},
+			},
+			context: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{
+						map[string]interface{}{
+							"name":  "nginx",
+							"ports": []interface{}{80, 443},
+						},
+						map[string]interface{}{
+							"name":  "sidecar",
+							"ports": []interface{}{8080, 9090},
+						},
+					},
+				},
+			},
+			expectedCount: 2,
+			checkResult: func(t *testing.T, result []interface{}) {
+				if len(result) != 2 {
+					t.Errorf("expected 2 containers, got %d", len(result))
+					return
+				}
+
+				// Check first container
+				container1 := result[0].(map[string]interface{})
+				if container1["name"] != "nginx" {
+					t.Errorf("container1 name = %v, want nginx", container1["name"])
+				}
+				ports1 := container1["ports"].([]interface{})
+				if len(ports1) != 2 {
+					t.Errorf("container1 ports count = %d, want 2", len(ports1))
+				}
+
+				// Check second container
+				container2 := result[1].(map[string]interface{})
+				if container2["name"] != "sidecar" {
+					t.Errorf("container2 name = %v, want sidecar", container2["name"])
+				}
+				ports2 := container2["ports"].([]interface{})
+				if len(ports2) != 2 {
+					t.Errorf("container2 ports count = %d, want 2", len(ports2))
+				}
+			},
+		},
+		{
+			name: "nested loop - services with endpoints",
+			key:  "$for(service in .spec.services):",
+			value: map[string]interface{}{
+				"serviceName": "$(service.name)",
+				"endpoints": map[string]interface{}{
+					"$for(endpoint in service.endpoints):": map[string]interface{}{
+						"address": "$(endpoint.ip)",
+						"port":    "$(endpoint.port)",
+					},
+				},
+			},
+			context: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"services": []interface{}{
+						map[string]interface{}{
+							"name": "web",
+							"endpoints": []interface{}{
+								map[string]interface{}{"ip": "10.0.0.1", "port": 80},
+								map[string]interface{}{"ip": "10.0.0.2", "port": 80},
+							},
+						},
+						map[string]interface{}{
+							"name": "api",
+							"endpoints": []interface{}{
+								map[string]interface{}{"ip": "10.0.1.1", "port": 8080},
+							},
+						},
+					},
+				},
+			},
+			expectedCount: 2,
+			checkResult: func(t *testing.T, result []interface{}) {
+				if len(result) != 2 {
+					t.Errorf("expected 2 services, got %d", len(result))
+					return
+				}
+
+				// Check first service
+				service1 := result[0].(map[string]interface{})
+				if service1["serviceName"] != "web" {
+					t.Errorf("service1 name = %v, want web", service1["serviceName"])
+				}
+				endpoints1 := service1["endpoints"].([]interface{})
+				if len(endpoints1) != 2 {
+					t.Errorf("service1 endpoints count = %d, want 2", len(endpoints1))
+				} else {
+					ep1 := endpoints1[0].(map[string]interface{})
+					if ep1["address"] != "10.0.0.1" || ep1["port"] != "80" {
+						t.Errorf("endpoint1 mismatch: %v", ep1)
+					}
+				}
+
+				// Check second service
+				service2 := result[1].(map[string]interface{})
+				if service2["serviceName"] != "api" {
+					t.Errorf("service2 name = %v, want api", service2["serviceName"])
+				}
+				endpoints2 := service2["endpoints"].([]interface{})
+				if len(endpoints2) != 1 {
+					t.Errorf("service2 endpoints count = %d, want 1", len(endpoints2))
+				}
+			},
+		},
+		{
+			name: "nested loop with conditionals",
+			key:  "$for(app in .spec.apps):",
+			value: map[string]interface{}{
+				"name": "$(app.name)",
+				"$if(app.envVars):": map[string]interface{}{
+					"env": map[string]interface{}{
+						"$for(envVar in app.envVars):": map[string]interface{}{
+							"name":  "$(envVar.name)",
+							"value": "$(envVar.value)",
+						},
+					},
+				},
+			},
+			context: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"apps": []interface{}{
+						map[string]interface{}{
+							"name": "app1",
+							"envVars": []interface{}{
+								map[string]interface{}{"name": "DB_HOST", "value": "localhost"},
+								map[string]interface{}{"name": "DB_PORT", "value": "5432"},
+							},
+						},
+						map[string]interface{}{
+							"name": "app2",
+							// No envVars
+						},
+					},
+				},
+			},
+			expectedCount: 2,
+			checkResult: func(t *testing.T, result []interface{}) {
+				if len(result) != 2 {
+					t.Errorf("expected 2 apps, got %d", len(result))
+					return
+				}
+
+				// First app should have env vars
+				app1 := result[0].(map[string]interface{})
+				if app1["name"] != "app1" {
+					t.Errorf("app1 name = %v, want app1", app1["name"])
+				}
+				if env, ok := app1["env"]; ok {
+					envList := env.([]interface{})
+					if len(envList) != 2 {
+						t.Errorf("app1 env count = %d, want 2", len(envList))
+					}
+				} else {
+					t.Error("app1 should have env field")
+				}
+
+				// Second app should not have env vars
+				app2 := result[1].(map[string]interface{})
+				if app2["name"] != "app2" {
+					t.Errorf("app2 name = %v, want app2", app2["name"])
+				}
+				if _, ok := app2["env"]; ok {
+					t.Error("app2 should not have env field")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evaluator := NewEvaluator(tt.context)
+			result, err := h.processLoop(tt.key, tt.value, evaluator, tt.context)
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(result) != tt.expectedCount {
+				t.Errorf("expected %d items, got %d", tt.expectedCount, len(result))
+			}
+
+			if tt.checkResult != nil {
+				tt.checkResult(t, result)
+			}
+		})
+	}
+}

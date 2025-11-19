@@ -312,9 +312,11 @@ func TestParseForLoop(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "path doesn't start with dot",
-			expr:    "item in spec.items",
-			wantErr: true,
+			name:         "loop variable reference (nested loop)",
+			expr:         "port in container.ports",
+			wantVarName:  "port",
+			wantIterPath: "container.ports",
+			wantErr:      false,
 		},
 		{
 			name:         "loop with spaces",
@@ -619,7 +621,7 @@ func TestStringFunctions(t *testing.T) {
 				},
 			},
 			expected: "4c0d44a73c3d4c0e90e9f5f6d5c1e3a6e2b1f0c9d8e7f6a5b4c3d2e1f0a9b8c7", // Not the actual hash, just example format
-			wantErr:  false, // Just verify it returns a string, not the exact hash
+			wantErr:  false,                                                              // Just verify it returns a string, not the exact hash
 		},
 		{
 			name: "default function with value",
@@ -875,6 +877,268 @@ func TestEdgeCases(t *testing.T) {
 				if !strings.Contains(err.Error(), tt.errMsg) {
 					t.Errorf("Evaluate() error = %v, want error containing %q", err, tt.errMsg)
 				}
+			}
+		})
+	}
+}
+
+func TestNestedFunctions(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		data     interface{}
+		expected interface{}
+		wantErr  bool
+	}{
+		{
+			name: "lower of trim",
+			expr: "lower(trim(.spec.value))",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"value": "  HELLO  ",
+				},
+			},
+			expected: "hello",
+		},
+		{
+			name: "upper of replace",
+			expr: "upper(replace(.spec.name, \"test\", \"prod\"))",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"name": "test-app",
+				},
+			},
+			expected: "PROD-APP",
+		},
+		{
+			name: "trim of lower of value",
+			expr: "trim(lower(.metadata.name))",
+			data: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "  MyAPP  ",
+				},
+			},
+			expected: "myapp",
+		},
+		{
+			name: "default with lower",
+			expr: "default(lower(.spec.env), \"development\")",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"env": "PRODUCTION",
+				},
+			},
+			expected: "production",
+		},
+		{
+			name: "if with nested functions",
+			expr: "if(.spec.enabled, upper(.spec.type), lower(.spec.type))",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"enabled": true,
+					"type":    "ClusterIP",
+				},
+			},
+			expected: "CLUSTERIP",
+		},
+		{
+			name: "if with nested functions false",
+			expr: "if(.spec.enabled, upper(.spec.type), lower(.spec.type))",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"enabled": false,
+					"type":    "LoadBalancer",
+				},
+			},
+			expected: "loadbalancer",
+		},
+		{
+			name: "triple nested functions",
+			expr: "upper(trim(replace(.spec.url, \"http://\", \"\")))",
+			data: map[string]interface{}{
+				"spec": map[string]interface{}{
+					"url": "http://example.com  ",
+				},
+			},
+			expected: "EXAMPLE.COM",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := ParseExpression(tt.expr)
+			if err != nil {
+				t.Fatalf("ParseExpression() error = %v", err)
+			}
+
+			evaluator := NewEvaluator(tt.data)
+			result, err := evaluator.Evaluate(expr)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Evaluate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("Evaluate() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestResourceReferencesWithComplexNames(t *testing.T) {
+	tests := []struct {
+		name      string
+		expr      string
+		data      interface{}
+		resources map[string]map[string]interface{}
+		expected  interface{}
+		wantErr   bool
+	}{
+		{
+			name: "resource reference with concatenated name",
+			expr: "resource(\"v1\", \"Service\", .metadata.name + \"-svc\").spec.clusterIP",
+			data: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "my-app",
+				},
+			},
+			resources: map[string]map[string]interface{}{
+				"v1/Service/my-app-svc": {
+					"apiVersion": "v1",
+					"kind":       "Service",
+					"metadata": map[string]interface{}{
+						"name": "my-app-svc",
+					},
+					"spec": map[string]interface{}{
+						"clusterIP": "10.0.0.1",
+					},
+				},
+			},
+			expected: "10.0.0.1",
+		},
+		{
+			name: "resource reference with lowercase function",
+			expr: "resource(\"v1\", \"ConfigMap\", lower(.metadata.name)).data.key",
+			data: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "MY-APP",
+				},
+			},
+			resources: map[string]map[string]interface{}{
+				"v1/ConfigMap/my-app": {
+					"apiVersion": "v1",
+					"kind":       "ConfigMap",
+					"metadata": map[string]interface{}{
+						"name": "my-app",
+					},
+					"data": map[string]interface{}{
+						"key": "value123",
+					},
+				},
+			},
+			expected: "value123",
+		},
+		{
+			name: "resource reference with trim and concat",
+			expr: "resource(\"v1\", \"Secret\", trim(.metadata.namespace) + \"-secret\").data.token",
+			data: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"namespace": "  prod  ",
+				},
+			},
+			resources: map[string]map[string]interface{}{
+				"v1/Secret/prod-secret": {
+					"apiVersion": "v1",
+					"kind":       "Secret",
+					"metadata": map[string]interface{}{
+						"name": "prod-secret",
+					},
+					"data": map[string]interface{}{
+						"token": "abc123",
+					},
+				},
+			},
+			expected: "abc123",
+		},
+		{
+			name: "resource reference with conditional expression in name",
+			expr: "resource(\"v1\", \"Service\", if(.spec.ha, .metadata.name + \"-ha\", .metadata.name)).spec.type",
+			data: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "app",
+				},
+				"spec": map[string]interface{}{
+					"ha": true,
+				},
+			},
+			resources: map[string]map[string]interface{}{
+				"v1/Service/app-ha": {
+					"apiVersion": "v1",
+					"kind":       "Service",
+					"metadata": map[string]interface{}{
+						"name": "app-ha",
+					},
+					"spec": map[string]interface{}{
+						"type": "LoadBalancer",
+					},
+				},
+			},
+			expected: "LoadBalancer",
+		},
+		{
+			name: "resource reference accessing array element",
+			expr: "resource(\"v1\", \"Service\", .metadata.name).spec.ports[0].port",
+			data: map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "web-app",
+				},
+			},
+			resources: map[string]map[string]interface{}{
+				"v1/Service/web-app": {
+					"apiVersion": "v1",
+					"kind":       "Service",
+					"metadata": map[string]interface{}{
+						"name": "web-app",
+					},
+					"spec": map[string]interface{}{
+						"ports": []interface{}{
+							map[string]interface{}{"port": int64(80)},
+							map[string]interface{}{"port": int64(443)},
+						},
+					},
+				},
+			},
+			expected: int64(80),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := ParseExpression(tt.expr)
+			if err != nil {
+				t.Fatalf("ParseExpression() error = %v", err)
+			}
+
+			evaluator := NewEvaluator(tt.data)
+
+			// Register resources
+			for _, resource := range tt.resources {
+				apiVersion := resource["apiVersion"].(string)
+				kind := resource["kind"].(string)
+				name := resource["metadata"].(map[string]interface{})["name"].(string)
+				evaluator.RegisterResource(apiVersion, kind, name, resource)
+			}
+
+			result, err := evaluator.Evaluate(expr)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Evaluate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("Evaluate() = %v (type %T), want %v (type %T)", result, result, tt.expected, tt.expected)
 			}
 		})
 	}
