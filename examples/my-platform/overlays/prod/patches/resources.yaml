@@ -1,0 +1,19 @@
+# Production resource limits patch
+# Sets production-grade resource requirements
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+

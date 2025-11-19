@@ -94,15 +94,24 @@ func (p *Parser) Parse() ([]Token, error) {
 
 // Expression represents a parsed DSL expression
 type Expression struct {
-	Type     ExprType
-	Path     string
-	Index    *Expression  // For array indexing
-	Function string
-	Args     []string
-	Operator string
-	Left     *Expression
-	Right    *Expression
-	Elements []*Expression // For concatenation
+	Type        ExprType
+	Path        string
+	Index       *Expression        // For array indexing
+	Function    string
+	Args        []string
+	Operator    string
+	Left        *Expression
+	Right       *Expression
+	Elements    []*Expression      // For concatenation
+	ResourceRef *ResourceReference // For resource references
+}
+
+// ResourceReference represents a reference to another resource
+type ResourceReference struct {
+	APIVersion string
+	Kind       string
+	Name       *Expression // Name can be an expression
+	FieldPath  string
 }
 
 // ExprType represents the type of expression
@@ -115,6 +124,7 @@ const (
 	ExprLiteral
 	ExprArrayIndex
 	ExprConcat
+	ExprResourceRef
 )
 
 // ParseExpression parses a DSL expression like ".spec.name" or "lower(.metadata.name)"
@@ -141,6 +151,11 @@ func ParseExpression(expr string) (*Expression, error) {
 		return parseBinaryExpr(expr, "+")
 	}
 	
+	// Check if it's a resource reference (has resource() anywhere)
+	if strings.HasPrefix(expr, "resource(") {
+		return parseResourceRef(expr)
+	}
+	
 	// Check if it's a function call (but not array indexing or parenthesized expression)
 	if strings.Contains(expr, "(") && strings.HasSuffix(expr, ")") && !strings.Contains(expr, "[") {
 		// Check if it's a parenthesized expression (starts with '(')
@@ -149,6 +164,7 @@ func ParseExpression(expr string) (*Expression, error) {
 			inner := expr[1 : len(expr)-1]
 			return ParseExpression(inner)
 		}
+		
 		return parseFunctionExpr(expr)
 	}
 	
@@ -361,6 +377,11 @@ func parseNonConcatExpression(expr string) (*Expression, error) {
 		}
 	}
 	
+	// Check if it's a resource reference
+	if strings.HasPrefix(expr, "resource(") {
+		return parseResourceRef(expr)
+	}
+	
 	// Check if it's a function call (but not a parenthesized expression)
 	if strings.Contains(expr, "(") && strings.HasSuffix(expr, ")") && !strings.Contains(expr, "[") {
 		// Check if it's a parenthesized expression (starts with '(')
@@ -369,6 +390,7 @@ func parseNonConcatExpression(expr string) (*Expression, error) {
 			inner := expr[1 : len(expr)-1]
 			return parseNonConcatExpression(inner)
 		}
+		
 		return parseFunctionExpr(expr)
 	}
 	
@@ -458,5 +480,109 @@ func ParseForLoop(expr string) (varName string, iterPath string, err error) {
 	}
 	
 	return varName, iterPath, nil
+}
+
+// parseResourceRef parses a resource reference like resource("v1", "Service", "my-app").spec.clusterIP
+func parseResourceRef(expr string) (*Expression, error) {
+	// Find the closing parenthesis of resource()
+	depth := 0
+	closeParen := -1
+	for i, ch := range expr {
+		if ch == '(' {
+			depth++
+		} else if ch == ')' {
+			depth--
+			if depth == 0 {
+				closeParen = i
+				break
+			}
+		}
+	}
+	
+	if closeParen == -1 {
+		return nil, fmt.Errorf("invalid resource reference: missing closing parenthesis")
+	}
+	
+	// Extract arguments: resource(args)
+	argsStr := expr[len("resource("):closeParen]
+	
+	// Extract field path after the function call
+	fieldPath := ""
+	if closeParen+1 < len(expr) {
+		remainder := expr[closeParen+1:]
+		if strings.HasPrefix(remainder, ".") {
+			fieldPath = remainder[1:] // Remove leading dot
+		} else if remainder != "" {
+			return nil, fmt.Errorf("invalid resource reference: expected '.' after resource(), got %s", remainder)
+		}
+	}
+	
+	// Parse arguments: "apiVersion", "kind", name_expression
+	args, err := parseResourceRefArgs(argsStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse resource reference arguments: %w", err)
+	}
+	
+	if len(args) != 3 {
+		return nil, fmt.Errorf("resource() requires 3 arguments (apiVersion, kind, name), got %d", len(args))
+	}
+	
+	// Parse the name argument (could be an expression)
+	nameExpr, err := ParseExpression(args[2])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse resource name: %w", err)
+	}
+	
+	return &Expression{
+		Type: ExprResourceRef,
+		ResourceRef: &ResourceReference{
+			APIVersion: strings.Trim(args[0], "\""),
+			Kind:       strings.Trim(args[1], "\""),
+			Name:       nameExpr,
+			FieldPath:  fieldPath,
+		},
+	}, nil
+}
+
+// parseResourceRefArgs parses the arguments of resource() function
+// Handles quoted strings and expressions
+func parseResourceRefArgs(argsStr string) ([]string, error) {
+	args := []string{}
+	current := ""
+	inQuotes := false
+	depth := 0
+	
+	for i := 0; i < len(argsStr); i++ {
+		ch := argsStr[i]
+		
+		switch ch {
+		case '"':
+			inQuotes = !inQuotes
+			current += string(ch)
+		case '(':
+			depth++
+			current += string(ch)
+		case ')':
+			depth--
+			current += string(ch)
+		case ',':
+			if !inQuotes && depth == 0 {
+				// End of argument
+				args = append(args, strings.TrimSpace(current))
+				current = ""
+			} else {
+				current += string(ch)
+			}
+		default:
+			current += string(ch)
+		}
+	}
+	
+	// Add last argument
+	if current != "" {
+		args = append(args, strings.TrimSpace(current))
+	}
+	
+	return args, nil
 }
 

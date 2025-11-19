@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/yourusername/krm-sdk/pkg/hydrator"
+	"github.com/yourusername/krm-sdk/pkg/overlay"
 	"github.com/yourusername/krm-sdk/pkg/validation"
 	"sigs.k8s.io/yaml"
 )
@@ -65,6 +66,37 @@ func (g *Generator) Generate(opts GeneratorOptions) error {
 		}
 		
 		allResources = append(allResources, resources...)
+	}
+	
+	// Apply kustomize overlay if specified
+	if opts.Overlay != "" {
+		if g.verbose {
+			fmt.Printf("Applying overlay: %s\n", opts.Overlay)
+		}
+		
+		kustomizer := overlay.NewKustomizeEngine("base", "overlays", opts.Verbose)
+		
+		// Write base resources
+		if err := kustomizer.WriteBase(allResources); err != nil {
+			return fmt.Errorf("failed to write base: %w", err)
+		}
+		
+		// Apply kustomize overlay
+		kustomized, err := kustomizer.ApplyOverlay(opts.Overlay)
+		if err != nil {
+			// Clean up base directory
+			kustomizer.Cleanup()
+			return fmt.Errorf("failed to apply overlay '%s': %w", opts.Overlay, err)
+		}
+		
+		// Clean up base directory
+		defer kustomizer.Cleanup()
+		
+		allResources = kustomized
+		
+		if g.verbose {
+			fmt.Printf("✓ Applied overlay: %s\n", opts.Overlay)
+		}
 	}
 	
 	// Output resources

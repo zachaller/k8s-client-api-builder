@@ -1,0 +1,14 @@
+apiVersion: platform.example.com/v1alpha1
+kind: WebService
+metadata:
+  name: api-service
+  namespace: production
+spec:
+  image: myapp/api:v1.2.3
+  replicas: 5
+  port: 8080
+  enableHA: true
+  resources:
+    cpu: "500m"
+    memory: "512Mi"
+

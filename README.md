@@ -22,9 +22,10 @@ Platform teams often need to provide simplified abstractions for application tea
 - ✅ **Validation**: Kubebuilder markers enforce constraints before generation
 - 📝 **Clean DSL**: YAML-native syntax with `$()` expressions (no Go text templates)
 - 🔄 **Multi-Resource**: One abstraction expands to multiple K8s resources
-- 🎨 **Overlays**: Kustomize-style environment-specific customization
-- 🧩 **Composable**: Abstractions can reference other abstractions
+- 🎨 **Overlays**: Native Kustomize integration for environment-specific customization
+- 🔗 **Resource References**: Cross-resource field access within templates
 - 📦 **Scaffolding**: Generate new projects and APIs with simple commands
+- 🧪 **Testing Framework**: Comprehensive testing utilities and CI/CD
 
 ## 🚀 Quick Start
 
@@ -161,6 +162,14 @@ labels:
   app: $(lower(.metadata.name))
   version: $(trim(.spec.version))
   hash: $(sha256(.spec.image))
+```
+
+### Resource References
+```yaml
+# Reference other resources in the same template
+serviceIP: $(resource("v1", "Service", "my-app").spec.clusterIP)
+servicePort: $(resource("v1", "Service", "my-app").spec.ports[0].port)
+secretName: $(resource("v1", "Secret", .metadata.name + "-secret").metadata.name)
 ```
 
 ## 📊 Comparison with Other Tools

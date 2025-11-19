@@ -117,6 +117,9 @@ Output:
 ### Build the Project
 
 ```bash
+# Install dependencies
+go mod tidy
+
 # Generate CRDs and code
 make generate
 
@@ -135,6 +138,25 @@ make build
 
 # Generate single file
 ./bin/my-platform generate -f instances/api-service.yaml -o output/
+```
+
+### Generate with Overlays
+
+```bash
+# Development environment (1 replica, minimal resources)
+./bin/my-platform generate -f instances/nginx-app.yaml --overlay overlays/dev
+
+# Staging environment (default settings with staging labels)
+./bin/my-platform generate -f instances/nginx-app.yaml --overlay overlays/staging
+
+# Production environment (5 replicas, high resources, node selectors)
+./bin/my-platform generate -f instances/nginx-app.yaml --overlay overlays/prod
+
+# Output to directory
+./bin/my-platform generate -f instances/nginx-app.yaml --overlay overlays/prod -o output/
+
+# Apply directly to cluster
+./bin/my-platform generate -f instances/nginx-app.yaml --overlay overlays/prod | kubectl apply -f -
 ```
 
 ### Validate Instances
@@ -231,6 +253,128 @@ From a single `WebService` instance, the tool generates:
 3. **Optional HA Config**: Pod anti-affinity when `enableHA: true`
 
 All with proper labels, selectors, and metadata automatically configured!
+
+## Overlay System
+
+This example project includes Kustomize overlays for different environments.
+
+### Overlay Structure
+
+```
+overlays/
+├── dev/
+│   ├── kustomization.yaml
+│   └── patches/
+│       └── replicas.yaml      # 1 replica, minimal resources
+├── staging/
+│   └── kustomization.yaml     # Default settings with staging labels
+└── prod/
+    ├── kustomization.yaml
+    └── patches/
+        ├── replicas.yaml      # 5 replicas, rolling updates
+        └── resources.yaml     # Production resource limits
+```
+
+### What Each Overlay Does
+
+**Development (`overlays/dev/`):**
+- Sets replicas to 1
+- Minimal resource requests (100m CPU, 128Mi memory)
+- Adds `environment: dev` label
+- Adds `dev-` name prefix
+
+**Staging (`overlays/staging/`):**
+- Uses default replica count from instance
+- Adds `environment: staging` label
+- Adds `staging-` name prefix
+- Overrides namespace to `staging`
+
+**Production (`overlays/prod/`):**
+- Sets replicas to 5
+- Production resource limits (500m-2 CPU, 512Mi-2Gi memory)
+- Adds node selector for production nodes
+- Rolling update strategy (maxSurge: 1, maxUnavailable: 0)
+- Adds `environment: production` and `tier: production` labels
+- Adds `prod-` name prefix
+- Overrides namespace to `production`
+
+### Comparing Outputs
+
+**Base (no overlay):**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-app
+  namespace: default
+spec:
+  replicas: 3
+  # ... standard configuration
+```
+
+**With Dev Overlay:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-nginx-app  # Prefix added
+  namespace: default
+  labels:
+    environment: dev   # Label added
+spec:
+  replicas: 1          # Changed from 3
+  template:
+    spec:
+      containers:
+      - name: app
+        resources:
+          requests:
+            cpu: "100m"      # Added
+            memory: "128Mi"  # Added
+```
+
+**With Prod Overlay:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prod-nginx-app  # Prefix added
+  namespace: production # Namespace changed
+  labels:
+    environment: production  # Labels added
+    tier: production
+spec:
+  replicas: 5  # Changed from 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    spec:
+      nodeSelector:
+        environment: production  # Added via JSON patch
+      containers:
+      - name: app
+        resources:
+          requests:
+            cpu: "500m"     # Added
+            memory: "512Mi" # Added
+          limits:
+            cpu: "2"        # Added
+            memory: "2Gi"   # Added
+```
+
+### Customizing Overlays
+
+You can modify the overlays to suit your needs:
+
+1. **Edit kustomization.yaml** to change labels, prefixes, namespaces
+2. **Add patches** in the `patches/` directory
+3. **Use JSON patches** for precise modifications
+4. **Add ConfigMaps/Secrets** using generators
+
+See the [Overlay Guide](../../docs/overlay-guide.md) for more details.
 
 ## Benefits Over Plain YAML
 

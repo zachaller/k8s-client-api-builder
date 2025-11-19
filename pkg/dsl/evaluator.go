@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -14,6 +13,7 @@ import (
 type Evaluator struct {
 	data      interface{}
 	functions map[string]Function
+	resources map[string]map[string]interface{} // Resource registry for cross-resource references
 }
 
 // Function represents a DSL function
@@ -24,9 +24,21 @@ func NewEvaluator(data interface{}) *Evaluator {
 	e := &Evaluator{
 		data:      data,
 		functions: make(map[string]Function),
+		resources: make(map[string]map[string]interface{}),
 	}
 	e.registerBuiltinFunctions()
 	return e
+}
+
+// RegisterResource adds a resource to the registry for cross-resource references
+func (e *Evaluator) RegisterResource(apiVersion, kind, name string, resource map[string]interface{}) {
+	key := fmt.Sprintf("%s/%s/%s", apiVersion, kind, name)
+	e.resources[key] = resource
+}
+
+// GetResources returns all registered resources
+func (e *Evaluator) GetResources() map[string]map[string]interface{} {
+	return e.resources
 }
 
 // RegisterFunction registers a custom function
@@ -49,6 +61,8 @@ func (e *Evaluator) Evaluate(expr *Expression) (interface{}, error) {
 		return e.evaluateArrayIndex(expr)
 	case ExprConcat:
 		return e.evaluateConcat(expr)
+	case ExprResourceRef:
+		return e.evaluateResourceRef(expr.ResourceRef)
 	default:
 		return nil, fmt.Errorf("unknown expression type: %d", expr.Type)
 	}
@@ -56,15 +70,37 @@ func (e *Evaluator) Evaluate(expr *Expression) (interface{}, error) {
 
 // EvaluateString evaluates a string that may contain variable substitutions
 func (e *Evaluator) EvaluateString(input string) (string, error) {
-	// Pattern to match $(...) expressions
-	pattern := regexp.MustCompile(`\$\(([^)]+)\)`)
-	
 	result := input
-	matches := pattern.FindAllStringSubmatch(input, -1)
 	
-	for _, match := range matches {
-		fullMatch := match[0]
-		exprStr := match[1]
+	// Find all $(...) expressions, handling nested parentheses
+	for {
+		start := strings.Index(result, "$(")
+		if start == -1 {
+			break
+		}
+		
+		// Find matching closing parenthesis
+		depth := 0
+		end := -1
+		for i := start; i < len(result); i++ {
+			if result[i] == '(' {
+				depth++
+			} else if result[i] == ')' {
+				depth--
+				if depth == 0 {
+					end = i
+					break
+				}
+			}
+		}
+		
+		if end == -1 {
+			return "", fmt.Errorf("unmatched parenthesis in expression")
+		}
+		
+		// Extract expression (without $( and ))
+		fullMatch := result[start : end+1]
+		exprStr := result[start+2 : end]
 		
 		expr, err := ParseExpression(exprStr)
 		if err != nil {
@@ -270,6 +306,128 @@ func (e *Evaluator) evaluateConcat(expr *Expression) (interface{}, error) {
 	}
 	
 	return result.String(), nil
+}
+
+// evaluateResourceRef evaluates a resource reference
+func (e *Evaluator) evaluateResourceRef(ref *ResourceReference) (interface{}, error) {
+	// Evaluate the name expression
+	nameValue, err := e.Evaluate(ref.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate resource name: %w", err)
+	}
+	
+	name := fmt.Sprintf("%v", nameValue)
+	
+	// Build resource key
+	key := fmt.Sprintf("%s/%s/%s", ref.APIVersion, ref.Kind, name)
+	
+	// Look up resource
+	resource, ok := e.resources[key]
+	if !ok {
+		// Provide helpful error message with available resources
+		available := []string{}
+		for k := range e.resources {
+			available = append(available, k)
+		}
+		return nil, fmt.Errorf("resource not found: %s\nAvailable resources: %v", key, available)
+	}
+	
+	// If no field path, return the entire resource
+	if ref.FieldPath == "" {
+		return resource, nil
+	}
+	
+	// Navigate to the field
+	return e.navigateResourceField(resource, ref.FieldPath)
+}
+
+// navigateResourceField navigates to a field in a resource
+func (e *Evaluator) navigateResourceField(resource map[string]interface{}, fieldPath string) (interface{}, error) {
+	// Parse field path (e.g., "spec.clusterIP" or "spec.ports[0].port")
+	parts := strings.Split(fieldPath, ".")
+	
+	current := interface{}(resource)
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		
+		// Check for array indexing in the part
+		if strings.Contains(part, "[") && strings.Contains(part, "]") {
+			// Parse array access: field[index]
+			openBracket := strings.Index(part, "[")
+			closeBracket := strings.Index(part, "]")
+			
+			fieldName := part[:openBracket]
+			indexStr := part[openBracket+1 : closeBracket]
+			
+			// Navigate to the field first
+			if fieldName != "" {
+				val := reflect.ValueOf(current)
+				if val.Kind() == reflect.Ptr {
+					val = val.Elem()
+				}
+				
+				switch val.Kind() {
+				case reflect.Map:
+					key := reflect.ValueOf(fieldName)
+					mapVal := val.MapIndex(key)
+					if !mapVal.IsValid() {
+						return nil, fmt.Errorf("field '%s' not found in resource", fieldName)
+					}
+					current = mapVal.Interface()
+				default:
+					return nil, fmt.Errorf("cannot access field '%s' on type %s", fieldName, val.Kind())
+				}
+			}
+			
+			// Parse index
+			index, err := strconv.Atoi(indexStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid array index '%s': %w", indexStr, err)
+			}
+			
+			// Access array element
+			val := reflect.ValueOf(current)
+			if val.Kind() == reflect.Slice || val.Kind() == reflect.Array {
+				if index < 0 || index >= val.Len() {
+					return nil, fmt.Errorf("array index %d out of bounds (length %d)", index, val.Len())
+				}
+				current = val.Index(index).Interface()
+			} else {
+				return nil, fmt.Errorf("cannot index into type %s", val.Kind())
+			}
+		} else {
+			// Regular field access
+			val := reflect.ValueOf(current)
+			if val.Kind() == reflect.Ptr {
+				val = val.Elem()
+			}
+			
+			switch val.Kind() {
+			case reflect.Map:
+				key := reflect.ValueOf(part)
+				mapVal := val.MapIndex(key)
+				if !mapVal.IsValid() {
+					return nil, fmt.Errorf("field '%s' not found in resource", part)
+				}
+				current = mapVal.Interface()
+			case reflect.Struct:
+				field := val.FieldByName(strings.Title(part))
+				if !field.IsValid() {
+					field = val.FieldByName(part)
+				}
+				if !field.IsValid() {
+					return nil, fmt.Errorf("field '%s' not found in struct", part)
+				}
+				current = field.Interface()
+			default:
+				return nil, fmt.Errorf("cannot access '%s' on type %s", part, val.Kind())
+			}
+		}
+	}
+	
+	return current, nil
 }
 
 // evaluateLiteral evaluates a literal value

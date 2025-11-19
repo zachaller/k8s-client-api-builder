@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -143,7 +144,13 @@ func (v *Validator) Validate(instance map[string]interface{}) (*ValidationResult
 	if schema.OpenAPIV3Schema != nil {
 		u := &unstructured.Unstructured{Object: instance}
 		
-		validator, _, err := validation.NewSchemaValidator(schema.OpenAPIV3Schema)
+		// Convert v1 schema to internal schema for validation
+		var internalSchema apiextensions.JSONSchemaProps
+		if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(schema.OpenAPIV3Schema, &internalSchema, nil); err != nil {
+			return nil, fmt.Errorf("failed to convert schema: %w", err)
+		}
+		
+		validator, _, err := validation.NewSchemaValidator(&internalSchema)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create validator: %w", err)
 		}

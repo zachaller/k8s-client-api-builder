@@ -70,7 +70,7 @@ and hydrates them into standard Kubernetes resources.`,
 	
 	cmd.Flags().StringSliceP("file", "f", []string{}, "input file or directory (required)")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory (default: stdout)")
-	cmd.Flags().StringVar(&overlay, "overlay", "", "overlay to apply (e.g., dev, staging, prod)")
+	cmd.Flags().StringVar(&overlay, "overlay", "", "kustomize overlay path (directory or kustomization.yaml file)")
 	cmd.Flags().BoolVar(&validate, "validate", true, "validate instances before hydration")
 	cmd.MarkFlagRequired("file")
 	
@@ -142,7 +142,7 @@ This command combines generation and kubectl apply in one step.`,
 	}
 	
 	cmd.Flags().StringSliceP("file", "f", []string{}, "input file or directory (required)")
-	cmd.Flags().StringVar(&overlay, "overlay", "", "overlay to apply (e.g., dev, staging, prod)")
+	cmd.Flags().StringVar(&overlay, "overlay", "", "kustomize overlay path (directory or kustomization.yaml file)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "perform a dry run")
 	cmd.MarkFlagRequired("file")
 	

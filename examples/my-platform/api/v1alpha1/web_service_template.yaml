@@ -27,16 +27,6 @@ resources:
             ports:
             - containerPort: $(.spec.port)
               protocol: TCP
-          $if(.spec.enableHA):
-            affinity:
-              podAntiAffinity:
-                preferredDuringSchedulingIgnoredDuringExecution:
-                - weight: 100
-                  podAffinityTerm:
-                    labelSelector:
-                      matchLabels:
-                        app: $(.metadata.name)
-                    topologyKey: kubernetes.io/hostname
 
   # Generate a Service
   - apiVersion: v1

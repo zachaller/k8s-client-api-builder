@@ -139,6 +139,202 @@ labels:
   hash: $(sha256(.spec.image))
 ```
 
+### Resource References
+
+Reference fields from other resources in the same template:
+
+```yaml
+# Reference a Service's ClusterIP
+serviceIP: $(resource("v1", "Service", "my-app").spec.clusterIP)
+
+# Reference with array indexing
+servicePort: $(resource("v1", "Service", "my-app").spec.ports[0].port)
+
+# Reference with expression for name
+secretName: $(resource("v1", "Secret", .metadata.name + "-secret").metadata.name)
+```
+
+## Resource References
+
+### Overview
+
+Resource references allow you to access fields from other resources defined in the same template. This is useful for:
+- Referencing Service names in Ingresses
+- Using Service ClusterIPs in ConfigMaps
+- Referencing Secret names in Deployments
+- Any cross-resource field access
+
+### Syntax
+
+**Format**: `$(resource(apiVersion, kind, name).path.to.field)`
+
+**Arguments**:
+- `apiVersion` - API version (e.g., "v1", "apps/v1")
+- `kind` - Resource kind (e.g., "Service", "Secret")
+- `name` - Resource name (can be a literal or expression)
+
+**Field Path**: After the function, use dot notation to access fields
+
+### Examples
+
+#### Basic Reference
+
+```yaml
+resources:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: my-app
+    spec:
+      clusterIP: 10.0.0.1
+      ports:
+      - port: 80
+  
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: app-config
+    data:
+      # Reference the Service's ClusterIP
+      SERVICE_HOST: $(resource("v1", "Service", "my-app").spec.clusterIP)
+      
+      # Reference the Service's port
+      SERVICE_PORT: $(resource("v1", "Service", "my-app").spec.ports[0].port)
+```
+
+#### Ingress Referencing Service
+
+```yaml
+resources:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: backend
+    spec:
+      ports:
+      - name: http
+        port: 8080
+  
+  - apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: backend-ingress
+    spec:
+      rules:
+      - host: api.example.com
+        http:
+          paths:
+          - path: /
+            backend:
+              service:
+                # Reference Service name
+                name: $(resource("v1", "Service", "backend").metadata.name)
+                port:
+                  # Reference Service port
+                  number: $(resource("v1", "Service", "backend").spec.ports[0].port)
+```
+
+#### Secret Reference in Deployment
+
+```yaml
+resources:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: db-credentials
+    stringData:
+      password: secret123
+  
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: app
+    spec:
+      template:
+        spec:
+          containers:
+          - name: app
+            env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  # Reference Secret name
+                  name: $(resource("v1", "Secret", "db-credentials").metadata.name)
+                  key: password
+```
+
+#### Dynamic Resource Names
+
+```yaml
+resources:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: $(.metadata.name)  # From instance
+    spec:
+      ports:
+      - port: 80
+  
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: $(.metadata.name + "-config")
+    data:
+      # Reference using expression for name
+      SERVICE_NAME: $(resource("v1", "Service", .metadata.name).metadata.name)
+```
+
+#### Building URLs
+
+```yaml
+resources:
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: api
+    spec:
+      clusterIP: 10.0.0.1
+      ports:
+      - port: 8080
+  
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: endpoints
+    data:
+      # Build complete URL
+      API_URL: $("http://" + resource("v1", "Service", "api").spec.clusterIP + ":" + resource("v1", "Service", "api").spec.ports[0].port)
+```
+
+### How It Works
+
+Resource references use **two-pass processing**:
+
+1. **Pass 1**: Generate all resources without resolving cross-resource references
+2. **Pass 2**: Resolve resource references using the generated resources
+
+This allows resources to reference any other resource in the template, regardless of order.
+
+### Limitations
+
+1. **Same template only**: Can only reference resources in the same template
+2. **No circular references**: Resources can't reference each other in a loop
+3. **Static fields only**: Can only reference fields that exist after pass 1
+4. **No external resources**: Can't reference existing cluster resources
+
+### Error Messages
+
+**Resource not found:**
+```
+Error: resource not found: v1/Service/my-app
+Available resources: [v1/ConfigMap/app-config, apps/v1/Deployment/my-app]
+```
+
+**Field not found:**
+```
+Error: field 'spec.clusterIP' not found in resource
+```
+
 ## Built-in Functions
 
 ### String Functions

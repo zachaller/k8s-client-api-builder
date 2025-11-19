@@ -1,0 +1,106 @@
+# Example template demonstrating resource references
+# This shows how to reference fields from other resources in the same template
+
+resources:
+  # First, create a Service
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: my-app
+      namespace: default
+    spec:
+      type: ClusterIP
+      ports:
+      - name: http
+        port: 80
+        targetPort: 8080
+      selector:
+        app: my-app
+  
+  # Create a Secret
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: my-app-secret
+      namespace: default
+    type: Opaque
+    stringData:
+      db-password: supersecret123
+  
+  # ConfigMap that references the Service
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: my-app-config
+      namespace: default
+    data:
+      # Reference the Service's ClusterIP
+      SERVICE_HOST: $(resource("v1", "Service", "my-app").spec.clusterIP)
+      
+      # Reference the Service's port
+      SERVICE_PORT: $(resource("v1", "Service", "my-app").spec.ports[0].port)
+      
+      # Build a URL using the Service
+      SERVICE_URL: $(resource("v1", "Service", "my-app").metadata.name + ":" + resource("v1", "Service", "my-app").spec.ports[0].port)
+      
+      # Reference the Secret's name
+      SECRET_NAME: $(resource("v1", "Secret", "my-app-secret").metadata.name)
+  
+  # Deployment that references the Secret
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: my-app
+      namespace: default
+    spec:
+      replicas: 3
+      selector:
+        matchLabels:
+          app: my-app
+      template:
+        metadata:
+          labels:
+            app: my-app
+        spec:
+          containers:
+          - name: app
+            image: nginx:latest
+            ports:
+            - containerPort: 8080
+            env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  # Reference the Secret's name dynamically
+                  name: $(resource("v1", "Secret", "my-app-secret").metadata.name)
+                  key: db-password
+            - name: SERVICE_NAME
+              # Reference the Service's name
+              value: $(resource("v1", "Service", "my-app").metadata.name)
+  
+  # Ingress that references the Service
+  - apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: my-app
+      namespace: default
+    spec:
+      rules:
+      - host: my-app.example.com
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # Reference the Service's name and port
+                name: $(resource("v1", "Service", "my-app").metadata.name)
+                port:
+                  number: $(resource("v1", "Service", "my-app").spec.ports[0].port)
+
+# Benefits of resource references:
+# 1. DRY - Don't repeat resource names/values
+# 2. Consistency - Changes propagate automatically
+# 3. Type-safe - References are validated
+# 4. Clear dependencies - Explicit cross-resource relationships
+

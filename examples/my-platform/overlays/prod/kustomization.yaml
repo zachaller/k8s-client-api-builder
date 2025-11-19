@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference base resources
+resources:
+  - ../../base
+
+# Apply patches
+patchesStrategicMerge:
+  - patches/replicas.yaml
+  - patches/resources.yaml
+
+# JSON patches for more complex modifications
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          environment: production
+
+# Add common labels
+commonLabels:
+  environment: production
+  tier: production
+
+# Optional: Add name prefix
+namePrefix: prod-
+
+# Optional: Override namespace
+namespace: production
+

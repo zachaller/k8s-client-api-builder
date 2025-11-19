@@ -54,9 +54,13 @@ func (s *ProjectScaffolder) Scaffold() error {
 		"api/v1alpha1",
 		"config/crd",
 		"config/samples",
+		"base",
 		"overlays/dev",
+		"overlays/dev/patches",
 		"overlays/staging",
+		"overlays/staging/patches",
 		"overlays/prod",
+		"overlays/prod/patches",
 		"instances",
 		"hack",
 	}
@@ -83,6 +87,13 @@ func (s *ProjectScaffolder) Scaffold() error {
 		"api/v1alpha1/groupversion_info.go":            s.generateGroupVersionInfo(),
 		"api/v1alpha1/register.go":                     s.generateRegister(),
 		"hack/boilerplate.go.txt":                      s.generateBoilerplate(),
+		"base/.gitkeep":                                 "",
+		"overlays/dev/kustomization.yaml":              s.generateDevKustomization(),
+		"overlays/dev/patches/replicas.yaml":           s.generateDevReplicasPatch(),
+		"overlays/staging/kustomization.yaml":          s.generateStagingKustomization(),
+		"overlays/prod/kustomization.yaml":             s.generateProdKustomization(),
+		"overlays/prod/patches/replicas.yaml":          s.generateProdReplicasPatch(),
+		"overlays/prod/patches/resources.yaml":         s.generateProdResourcesPatch(),
 	}
 	
 	for filename, content := range files {
@@ -110,6 +121,9 @@ require (
 	k8s.io/apiextensions-apiserver v0.34.2
 	sigs.k8s.io/yaml v1.6.0
 )
+
+// Local development: Uncomment and update path to your local krm-sdk
+// replace github.com/yourusername/krm-sdk => /path/to/krm-sdk
 `, s.config.Repo)
 }
 
@@ -260,8 +274,44 @@ Generate Kubernetes resources:
 Apply with overlays:
 
 `+"```"+`bash
-./bin/%s apply -f instances/example.yaml --overlay prod
+./bin/%s generate -f instances/example.yaml --overlay prod | kubectl apply -f -
 `+"```"+`
+
+## Using Overlays
+
+This project uses Kustomize for environment-specific configuration.
+
+### Generate with Overlay
+
+`+"```"+`bash
+# Development environment
+./bin/%s generate -f instances/example.yaml --overlay dev
+
+# Staging environment
+./bin/%s generate -f instances/example.yaml --overlay staging
+
+# Production environment
+./bin/%s generate -f instances/example.yaml --overlay prod
+`+"```"+`
+
+### Customize Overlays
+
+Edit the kustomization files:
+- `+"`overlays/dev/kustomization.yaml`"+`
+- `+"`overlays/staging/kustomization.yaml`"+`
+- `+"`overlays/prod/kustomization.yaml`"+`
+
+Add patches in the `+"`patches/`"+` directories.
+
+### Kustomize Features Supported
+
+- Strategic merge patches
+- JSON patches
+- Common labels/annotations
+- Name prefixes/suffixes
+- Namespace overrides
+- ConfigMap/Secret generators
+- Image tag updates
 
 ## Project Structure
 
@@ -269,6 +319,7 @@ Apply with overlays:
 - `+"`cmd/`"+` - Main application entry point
 - `+"`config/`"+` - Generated CRDs and sample manifests
 - `+"`instances/`"+` - Instance files for your abstractions
+- `+"`base/`"+` - Base resources (auto-generated during overlay application)
 - `+"`overlays/`"+` - Environment-specific overlays (dev/staging/prod)
 
 ## Adding New Abstractions
@@ -284,7 +335,7 @@ make build
 ## License
 
 Apache 2.0
-`, strings.ToUpper(s.config.Name), s.config.Domain, s.config.Name, s.config.Name)
+`, strings.ToUpper(s.config.Name), s.config.Domain, s.config.Name, s.config.Name, s.config.Name, s.config.Name, s.config.Name)
 }
 
 func (s *ProjectScaffolder) generateGitignore() string {
@@ -421,6 +472,145 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+`
+}
+
+func (s *ProjectScaffolder) generateDevKustomization() string {
+	return `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference base resources
+resources:
+  - ../../base
+
+# Apply patches
+patchesStrategicMerge:
+  - patches/replicas.yaml
+
+# Add common labels
+commonLabels:
+  environment: dev
+
+# Optional: Add name prefix
+namePrefix: dev-
+`
+}
+
+func (s *ProjectScaffolder) generateDevReplicasPatch() string {
+	return `# Development environment patch
+# Sets lower resource requirements for dev
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "*"  # Applies to all Deployments
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: "*"  # Applies to all containers
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+`
+}
+
+func (s *ProjectScaffolder) generateStagingKustomization() string {
+	return `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference base resources
+resources:
+  - ../../base
+
+# Add common labels
+commonLabels:
+  environment: staging
+
+# Optional: Add name prefix
+namePrefix: staging-
+
+# Optional: Override namespace
+namespace: staging
+`
+}
+
+func (s *ProjectScaffolder) generateProdKustomization() string {
+	return `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference base resources
+resources:
+  - ../../base
+
+# Apply patches
+patchesStrategicMerge:
+  - patches/replicas.yaml
+  - patches/resources.yaml
+
+# JSON patches for more complex modifications
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          environment: production
+
+# Add common labels
+commonLabels:
+  environment: production
+  tier: production
+
+# Optional: Add name prefix
+namePrefix: prod-
+
+# Optional: Override namespace
+namespace: production
+`
+}
+
+func (s *ProjectScaffolder) generateProdReplicasPatch() string {
+	return `# Production environment patch
+# Sets higher replica count for production
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "*"  # Applies to all Deployments
+spec:
+  replicas: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+`
+}
+
+func (s *ProjectScaffolder) generateProdResourcesPatch() string {
+	return `# Production resource limits patch
+# Sets production-grade resource requirements
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "*"  # Applies to all Deployments
+spec:
+  template:
+    spec:
+      containers:
+      - name: "*"  # Applies to all containers
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2"
+            memory: "2Gi"
 `
 }
 

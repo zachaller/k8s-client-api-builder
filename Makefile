@@ -16,7 +16,7 @@ BINARY_PATH=bin/$(BINARY_NAME)
 BUILD_FLAGS=-v
 LDFLAGS=-ldflags "-s -w"
 
-.PHONY: all build clean test install tools help
+.PHONY: all build clean test test-integration test-golden test-golden-update test-all coverage install tools help
 
 all: test build
 
@@ -32,10 +32,10 @@ clean:
 	$(GOCLEAN)
 	rm -rf bin/
 
-## test: Run tests
+## test: Run unit tests
 test:
-	@echo "Running tests..."
-	$(GOTEST) -v ./...
+	@echo "Running unit tests..."
+	$(GOTEST) -v -race -coverprofile=coverage.out ./pkg/...
 
 ## install: Install krm-sdk binary
 install: build
@@ -60,6 +60,30 @@ fmt:
 vet:
 	@echo "Running go vet..."
 	$(GOCMD) vet ./...
+
+## test-integration: Run integration tests
+test-integration:
+	@echo "Running integration tests..."
+	$(GOTEST) -v -race ./test/integration/...
+
+## test-golden: Run golden file tests
+test-golden:
+	@echo "Running golden file tests..."
+	$(GOTEST) -v ./test/integration/... -golden
+
+## test-golden-update: Update golden files
+test-golden-update:
+	@echo "Updating golden files..."
+	$(GOTEST) -v ./test/integration/... -golden -update
+
+## test-all: Run all tests
+test-all: test test-integration
+
+## coverage: Generate coverage report
+coverage: test
+	@echo "Generating coverage report..."
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
 
 ## help: Show this help message
 help:

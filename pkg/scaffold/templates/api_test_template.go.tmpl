@@ -1,0 +1,48 @@
+package {{.Version}}_test
+
+import (
+	"testing"
+)
+
+func Test{{.Kind}}Hydration(t *testing.T) {
+	// TODO: Add hydration tests for {{.Kind}}
+	// Example:
+	// framework := testing.NewTestFramework(t)
+	// defer framework.Cleanup()
+	//
+	// resources, err := framework.GenerateResources("testdata/{{.KindLower}}-basic.yaml")
+	// if err != nil {
+	//     t.Fatalf("hydration failed: %v", err)
+	// }
+	//
+	// err = framework.ValidateOutput(resources, []testing.Expectation{
+	//     testing.ExpectResource("Deployment", 1),
+	//     testing.ExpectResource("Service", 1),
+	// })
+	// if err != nil {
+	//     t.Fatalf("validation failed: %v", err)
+	// }
+	
+	t.Skip("Add your hydration tests here")
+}
+
+func Test{{.Kind}}WithOverlay(t *testing.T) {
+	// TODO: Add overlay tests for {{.Kind}}
+	// Example:
+	// framework := testing.NewTestFramework(t)
+	// defer framework.Cleanup()
+	//
+	// resources, err := framework.GenerateWithOverlay(
+	//     "testdata/{{.KindLower}}-basic.yaml",
+	//     "prod",
+	// )
+	// if err != nil {
+	//     t.Fatalf("hydration with overlay failed: %v", err)
+	// }
+	//
+	// // Validate overlay was applied
+	// // Add specific checks here
+	
+	t.Skip("Add your overlay tests here")
+}
+

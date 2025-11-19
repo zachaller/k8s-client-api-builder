@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/yourusername/krm-sdk/pkg/dsl"
-	"gopkg.in/yaml.v3"
 	"sigs.k8s.io/yaml"
 )
 
@@ -38,12 +37,8 @@ type HydrateResult struct {
 }
 
 // Hydrate processes an abstraction instance and generates K8s resources
+// Uses two-pass processing to support cross-resource references
 func (h *Hydrator) Hydrate(instance map[string]interface{}) (*HydrateResult, error) {
-	result := &HydrateResult{
-		Resources: []map[string]interface{}{},
-		Errors:    []error{},
-	}
-	
 	// Extract kind from instance
 	kind, ok := instance["kind"].(string)
 	if !ok {
@@ -77,25 +72,173 @@ func (h *Hydrator) Hydrate(instance map[string]interface{}) (*HydrateResult, err
 		return nil, fmt.Errorf("failed to load template: %w", err)
 	}
 	
-	// Create evaluator with instance data
+	// Pass 1: Generate resources without resolving resource references
+	pass1Resources, err := h.hydratePass1(template, instance)
+	if err != nil {
+		return nil, fmt.Errorf("pass 1 failed: %w", err)
+	}
+	
+	// Pass 2: Resolve cross-resource references
+	finalResources, errors := h.hydratePass2(pass1Resources, instance)
+	
+	return &HydrateResult{
+		Resources: finalResources,
+		Errors:    errors,
+	}, nil
+}
+
+// hydratePass1 generates resources without resolving cross-resource references
+func (h *Hydrator) hydratePass1(template *Template, instance map[string]interface{}) ([]map[string]interface{}, error) {
+	resources := []map[string]interface{}{}
+	
+	// Create evaluator with instance data (no resources yet)
 	evaluator := dsl.NewEvaluator(instance)
 	
 	// Process each resource in the template
 	for i, resourceTemplate := range template.Resources {
 		if h.verbose {
-			fmt.Printf("Processing resource %d/%d\n", i+1, len(template.Resources))
+			fmt.Printf("Pass 1: Processing resource %d/%d\n", i+1, len(template.Resources))
 		}
 		
 		resource, err := h.processResource(resourceTemplate, evaluator, instance)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("resource %d: %w", i, err))
+			return nil, fmt.Errorf("resource %d: %w", i, err)
+		}
+		
+		resources = append(resources, resource)
+		
+		// Register resource for pass 2
+		if err := registerResourceInEvaluator(evaluator, resource); err != nil {
+			// Non-fatal: resource might not have required fields yet
+			if h.verbose {
+				fmt.Printf("Warning: could not register resource %d: %v\n", i, err)
+			}
+		}
+	}
+	
+	return resources, nil
+}
+
+// hydratePass2 resolves cross-resource references
+func (h *Hydrator) hydratePass2(resources []map[string]interface{}, instance map[string]interface{}) ([]map[string]interface{}, []error) {
+	// Create new evaluator with instance data
+	evaluator := dsl.NewEvaluator(instance)
+	
+	// Register all resources
+	for _, resource := range resources {
+		if err := registerResourceInEvaluator(evaluator, resource); err != nil {
+			// Skip resources that can't be registered
+			continue
+		}
+	}
+	
+	// Build dependency graph for circular reference detection
+	depGraph, err := h.buildDependencyGraph(resources)
+	if err != nil {
+		return nil, []error{err}
+	}
+	
+	// Check for circular references
+	if cycles := detectCircularReferences(depGraph); len(cycles) > 0 {
+		return nil, []error{fmt.Errorf("circular resource references detected: %v", cycles)}
+	}
+	
+	// Process each resource again to resolve references
+	finalResources := []map[string]interface{}{}
+	errors := []error{}
+	
+	for i, resource := range resources {
+		if h.verbose {
+			fmt.Printf("Pass 2: Resolving references in resource %d/%d\n", i+1, len(resources))
+		}
+		
+		resolved, err := h.resolveResourceReferences(resource, evaluator, instance)
+		if err != nil {
+			errors = append(errors, fmt.Errorf("resource %d: %w", i, err))
+			// Still include the resource even if resolution fails
+			finalResources = append(finalResources, resource)
 			continue
 		}
 		
-		result.Resources = append(result.Resources, resource)
+		// Type assert resolved value
+		resolvedResource, ok := resolved.(map[string]interface{})
+		if !ok {
+			errors = append(errors, fmt.Errorf("resource %d: resolved value is not a map", i))
+			finalResources = append(finalResources, resource)
+			continue
+		}
+		
+		finalResources = append(finalResources, resolvedResource)
 	}
 	
-	return result, nil
+	return finalResources, errors
+}
+
+// registerResourceInEvaluator registers a resource in the evaluator's resource registry
+func registerResourceInEvaluator(evaluator *dsl.Evaluator, resource map[string]interface{}) error {
+	apiVersion, ok := resource["apiVersion"].(string)
+	if !ok {
+		return fmt.Errorf("resource missing apiVersion")
+	}
+	
+	kind, ok := resource["kind"].(string)
+	if !ok {
+		return fmt.Errorf("resource missing kind")
+	}
+	
+	metadata, ok := resource["metadata"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("resource missing metadata")
+	}
+	
+	name, ok := metadata["name"].(string)
+	if !ok {
+		return fmt.Errorf("resource missing metadata.name")
+	}
+	
+	evaluator.RegisterResource(apiVersion, kind, name, resource)
+	return nil
+}
+
+// resolveResourceReferences recursively resolves resource references in a resource
+func (h *Hydrator) resolveResourceReferences(value interface{}, evaluator *dsl.Evaluator, context map[string]interface{}) (interface{}, error) {
+	switch v := value.(type) {
+	case string:
+		// Check if string contains resource references
+		resolved, err := evaluator.EvaluateString(v)
+		if err != nil {
+			return v, err
+		}
+		return resolved, nil
+		
+	case map[string]interface{}:
+		// Recursively process map
+		result := make(map[string]interface{})
+		for key, val := range v {
+			resolved, err := h.resolveResourceReferences(val, evaluator, context)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = resolved
+		}
+		return result, nil
+		
+	case []interface{}:
+		// Recursively process slice
+		result := make([]interface{}, 0, len(v))
+		for _, item := range v {
+			resolved, err := h.resolveResourceReferences(item, evaluator, context)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, resolved)
+		}
+		return result, nil
+		
+	default:
+		// Return primitive values as-is
+		return v, nil
+	}
 }
 
 // processResource processes a single resource template
@@ -121,7 +264,7 @@ func (h *Hydrator) processResource(template map[string]interface{}, evaluator *d
 		
 		if strings.HasPrefix(key, "$for(") {
 			// Handle loop
-			processed, err := h.processLoop(key, value, evaluator, context)
+			_, err := h.processLoop(key, value, evaluator, context)
 			if err != nil {
 				return nil, err
 			}
