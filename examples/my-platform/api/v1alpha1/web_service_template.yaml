@@ -1,5 +1,5 @@
 # Hydration template for WebService
-# Demonstrates: variable substitution, conditionals, and resource references
+# Demonstrates: variable substitution, conditionals, inline if statements, and resource references
 
 resources:
   # Generate a Deployment
@@ -25,6 +25,12 @@ resources:
             image: $(.spec.image)
             ports:
             - containerPort: $(.spec.port)
+            # Loop example: add environment variables if provided
+            "$if(.spec.env):":
+              env:
+                "$for(envVar in .spec.env):":
+                  name: $(envVar.name)
+                  value: $(envVar.value)
 
   # Generate a Service
   - apiVersion: v1
@@ -34,8 +40,12 @@ resources:
       namespace: $(.metadata.namespace)
       labels:
         app: $(.metadata.name)
+      annotations:
+        # Inline if statement: conditionally set annotation value
+        ingress-enabled: $if(.spec.enableIngress, "true", "false")
     spec:
-      type: ClusterIP
+      # Inline if statement: use LoadBalancer when ingress is disabled, ClusterIP when enabled
+      type: $if(.spec.enableIngress, "ClusterIP", "LoadBalancer")
       selector:
         app: $(.metadata.name)
       ports:

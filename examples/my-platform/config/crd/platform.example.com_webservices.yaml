@@ -47,6 +47,23 @@ spec:
                 default: false
                 description: EnableIngress enables ingress creation
                 type: boolean
+              env:
+                description: Env is a list of environment variables to set in the
+                  container
+                items:
+                  description: EnvVar represents an environment variable
+                  properties:
+                    name:
+                      description: Name is the environment variable name
+                      type: string
+                    value:
+                      description: Value is the environment variable value
+                      type: string
+                  required:
+                  - name
+                  - value
+                  type: object
+                type: array
               image:
                 description: Image is the container image to deploy
                 minLength: 1

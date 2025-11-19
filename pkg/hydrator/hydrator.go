@@ -542,7 +542,9 @@ func (h *Hydrator) evaluateCondition(key string, evaluator *dsl.Evaluator) (bool
 
 	result, err := evaluator.Evaluate(expr)
 	if err != nil {
-		return false, fmt.Errorf("failed to evaluate condition '%s': %w", condition, err)
+		// If evaluation fails (e.g., field doesn't exist), treat as false
+		// This allows optional fields in conditionals
+		return false, nil
 	}
 
 	// Check if condition is true
@@ -575,7 +577,9 @@ func (h *Hydrator) processConditional(key string, value interface{}, evaluator *
 
 	result, err := evaluator.Evaluate(expr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate condition '%s': %w", condition, err)
+		// If evaluation fails (e.g., field doesn't exist), treat as false
+		// This allows optional fields in conditionals
+		return nil, nil
 	}
 
 	// Check if condition is true

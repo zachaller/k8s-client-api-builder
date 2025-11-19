@@ -188,11 +188,40 @@ func ParseExpression(expr string) (*Expression, error) {
 		}, nil
 	}
 
+	// Check if it's a loop variable path (e.g., "envVar.name" or just "envVar")
+	// These don't start with '.' but should be treated as paths if they contain dots or are simple identifiers
+	if !strings.ContainsAny(expr, " +-*/%\"") && (strings.Contains(expr, ".") || isIdentifier(expr)) {
+		return &Expression{
+			Type: ExprPath,
+			Path: expr,
+		}, nil
+	}
+
 	// It's a literal
 	return &Expression{
 		Type: ExprLiteral,
 		Path: expr,
 	}, nil
+}
+
+// isIdentifier checks if a string is a valid identifier (letters, numbers, underscores, hyphens)
+// But must start with a letter (not a number) to avoid treating numeric literals as identifiers
+func isIdentifier(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	// Must start with a letter or underscore
+	firstCh := rune(s[0])
+	if !((firstCh >= 'a' && firstCh <= 'z') || (firstCh >= 'A' && firstCh <= 'Z') || firstCh == '_') {
+		return false
+	}
+	// Rest can be letters, numbers, underscores, or hyphens
+	for _, ch := range s {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // hasMultiplePlusOutsideParens checks if there are multiple + operators outside parens
@@ -239,8 +268,8 @@ func parseFunctionExpr(expr string) (*Expression, error) {
 
 	var args []string
 	if argsStr != "" {
-		// Simple argument parsing (doesn't handle nested functions yet)
-		args = []string{argsStr}
+		// Parse arguments, respecting nested parentheses and quotes
+		args = splitFunctionArgs(argsStr)
 	}
 
 	return &Expression{
@@ -248,6 +277,52 @@ func parseFunctionExpr(expr string) (*Expression, error) {
 		Function: funcName,
 		Args:     args,
 	}, nil
+}
+
+// splitFunctionArgs splits function arguments by commas, respecting nested parentheses and quotes
+func splitFunctionArgs(argsStr string) []string {
+	var args []string
+	var current strings.Builder
+	depth := 0
+	inQuotes := false
+
+	for i := 0; i < len(argsStr); i++ {
+		ch := argsStr[i]
+
+		// Handle quotes
+		if ch == '"' && (i == 0 || argsStr[i-1] != '\\') {
+			inQuotes = !inQuotes
+			current.WriteByte(ch)
+			continue
+		}
+
+		if inQuotes {
+			current.WriteByte(ch)
+			continue
+		}
+
+		// Handle parentheses depth
+		if ch == '(' {
+			depth++
+			current.WriteByte(ch)
+		} else if ch == ')' {
+			depth--
+			current.WriteByte(ch)
+		} else if ch == ',' && depth == 0 {
+			// Found a separator at the top level
+			args = append(args, strings.TrimSpace(current.String()))
+			current.Reset()
+		} else {
+			current.WriteByte(ch)
+		}
+	}
+
+	// Add the last argument
+	if current.Len() > 0 {
+		args = append(args, strings.TrimSpace(current.String()))
+	}
+
+	return args
 }
 
 func parseBinaryExpr(expr string, operator string) (*Expression, error) {

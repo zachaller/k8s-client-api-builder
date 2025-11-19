@@ -72,17 +72,30 @@ func (e *Evaluator) Evaluate(expr *Expression) (interface{}, error) {
 func (e *Evaluator) EvaluateString(input string) (string, error) {
 	result := input
 
-	// Find all $(...) expressions, handling nested parentheses
+	// Find all $(...) and $if(...) expressions, handling nested parentheses
 	for {
-		start := strings.Index(result, "$(")
-		if start == -1 {
+		// Check for $if( first (inline ternary)
+		ifStart := strings.Index(result, "$if(")
+		dollarStart := strings.Index(result, "$(")
+
+		var start int
+		var prefixLen int
+
+		// Determine which pattern comes first
+		if ifStart != -1 && (dollarStart == -1 || ifStart < dollarStart) {
+			start = ifStart
+			prefixLen = 4 // length of "$if("
+		} else if dollarStart != -1 {
+			start = dollarStart
+			prefixLen = 2 // length of "$("
+		} else {
 			break
 		}
 
 		// Find matching closing parenthesis
 		depth := 0
 		end := -1
-		for i := start; i < len(result); i++ {
+		for i := start + prefixLen - 1; i < len(result); i++ {
 			if result[i] == '(' {
 				depth++
 			} else if result[i] == ')' {
@@ -98,9 +111,14 @@ func (e *Evaluator) EvaluateString(input string) (string, error) {
 			return "", fmt.Errorf("unmatched parenthesis in expression")
 		}
 
-		// Extract expression (without $( and ))
+		// Extract expression (without prefix and ))
 		fullMatch := result[start : end+1]
-		exprStr := result[start+2 : end]
+		exprStr := result[start+prefixLen : end]
+
+		// If this was a $if( expression, wrap it as a function call
+		if prefixLen == 4 {
+			exprStr = "if(" + exprStr + ")"
+		}
 
 		expr, err := ParseExpression(exprStr)
 		if err != nil {
@@ -120,17 +138,18 @@ func (e *Evaluator) EvaluateString(input string) (string, error) {
 	return result, nil
 }
 
-// evaluatePath evaluates a path expression like ".spec.name"
+// evaluatePath evaluates a path expression like ".spec.name" or "envVar.name"
 func (e *Evaluator) evaluatePath(path string) (interface{}, error) {
-	if !strings.HasPrefix(path, ".") {
-		return nil, fmt.Errorf("path must start with '.': %s", path)
+	// Handle paths that start with '.' (regular paths from root)
+	var parts []string
+	if strings.HasPrefix(path, ".") {
+		// Remove leading dot
+		path = path[1:]
+		parts = strings.Split(path, ".")
+	} else {
+		// Loop variable path (e.g., "envVar.name")
+		parts = strings.Split(path, ".")
 	}
-
-	// Remove leading dot
-	path = path[1:]
-
-	// Split path into parts
-	parts := strings.Split(path, ".")
 
 	// Navigate through the data structure
 	current := e.data
@@ -511,6 +530,35 @@ func (e *Evaluator) registerBuiltinFunctions() {
 			return args[1], nil
 		}
 		return args[0], nil
+	})
+
+	// Inline if function (ternary operator)
+	e.RegisterFunction("if", func(args ...interface{}) (interface{}, error) {
+		if len(args) != 3 {
+			return nil, fmt.Errorf("if() requires 3 arguments: condition, trueValue, falseValue")
+		}
+
+		// Evaluate the condition
+		condition := false
+		switch v := args[0].(type) {
+		case bool:
+			condition = v
+		case string:
+			condition = v != "" && v != "false" && v != "0"
+		case int, int32, int64:
+			num, _ := toInt(v)
+			condition = num != 0
+		case float32, float64:
+			num, _ := toFloat64(v)
+			condition = num != 0.0
+		default:
+			condition = v != nil
+		}
+
+		if condition {
+			return args[1], nil
+		}
+		return args[2], nil
 	})
 }
 

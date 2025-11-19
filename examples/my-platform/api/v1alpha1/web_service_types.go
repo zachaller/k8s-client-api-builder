@@ -28,6 +28,18 @@ type WebServiceSpec struct {
 	// Domain is the domain for the ingress (required if enableIngress is true)
 	// +optional
 	Domain string `json:"domain,omitempty"`
+
+	// Env is a list of environment variables to set in the container
+	// +optional
+	Env []EnvVar `json:"env,omitempty"`
+}
+
+// EnvVar represents an environment variable
+type EnvVar struct {
+	// Name is the environment variable name
+	Name string `json:"name"`
+	// Value is the environment variable value
+	Value string `json:"value"`
 }
 
 // WebServiceStatus defines the observed state of WebService
