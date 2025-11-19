@@ -146,8 +146,8 @@ func ParseExpression(expr string) (*Expression, error) {
 		}
 	}
 
-	// Check for + operator (could be arithmetic if no quotes)
-	if containsOperatorOutsideParens(expr, "+") && !strings.Contains(expr, "\"") {
+	// Check for + operator (arithmetic or string concatenation)
+	if containsOperatorOutsideParens(expr, "+") {
 		return parseBinaryExpr(expr, "+")
 	}
 
@@ -483,6 +483,15 @@ func parseNonConcatExpression(expr string) (*Expression, error) {
 
 	// It's a simple path expression
 	if strings.HasPrefix(expr, ".") {
+		return &Expression{
+			Type: ExprPath,
+			Path: expr,
+		}, nil
+	}
+
+	// Check if it's a loop variable path (e.g., "envVar.name" or just "envVar")
+	// These don't start with '.' but should be treated as paths if they contain dots or are simple identifiers
+	if !strings.ContainsAny(expr, " +-*/%\"") && (strings.Contains(expr, ".") || isIdentifier(expr)) {
 		return &Expression{
 			Type: ExprPath,
 			Path: expr,

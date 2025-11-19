@@ -238,14 +238,14 @@ func (h *Hydrator) expandResourceTemplates(resourcesField interface{}, evaluator
 
 	switch v := resourcesField.(type) {
 	case []interface{}:
-		// Array of resources (may contain maps with conditionals)
+		// Array of resources (may contain maps with conditionals or loops)
 		for _, item := range v {
 			if itemMap, ok := item.(map[string]interface{}); ok {
-				// Check if this resource has a conditional key
-				hasConditional := false
+				// Check if this resource has a conditional or loop key
+				hasSpecialKey := false
 				for key := range itemMap {
 					if strings.HasPrefix(key, "$if(") {
-						hasConditional = true
+						hasSpecialKey = true
 						// Evaluate only the condition, not the content
 						shouldInclude, err := h.evaluateCondition(key, evaluator)
 						if err != nil {
@@ -259,17 +259,26 @@ func (h *Hydrator) expandResourceTemplates(resourcesField interface{}, evaluator
 							}
 						}
 						break
+					} else if strings.HasPrefix(key, "$for(") {
+						hasSpecialKey = true
+						// Expand the loop
+						loopResources, err := h.expandResourceLoop(key, itemMap[key], evaluator, context, isPass1)
+						if err != nil {
+							return nil, fmt.Errorf("loop error: %w", err)
+						}
+						templates = append(templates, loopResources...)
+						break
 					}
 				}
 
-				// If no conditional, add the resource as-is
-				if !hasConditional {
+				// If no special key, add the resource as-is
+				if !hasSpecialKey {
 					templates = append(templates, itemMap)
 				}
 			}
 		}
 	case map[string]interface{}:
-		// Map that might contain conditionals at top level
+		// Map that might contain conditionals or loops at top level
 		for key, value := range v {
 			if strings.HasPrefix(key, "$if(") {
 				// Evaluate only the condition
@@ -278,17 +287,25 @@ func (h *Hydrator) expandResourceTemplates(resourcesField interface{}, evaluator
 					return nil, fmt.Errorf("conditional error: %w", err)
 				}
 
-				// If condition is true, add the resources
+				// If condition is true, recursively expand the resources
 				if shouldInclude {
-					// The value should be an array of resources
+					// The value should be an array of resources - recursively expand it
+					// This handles cases where the conditional contains loops or nested conditionals
 					if valueArray, ok := value.([]interface{}); ok {
-						for _, item := range valueArray {
-							if itemMap, ok := item.(map[string]interface{}); ok {
-								templates = append(templates, itemMap)
-							}
+						expandedResources, err := h.expandResourceTemplates(valueArray, evaluator, context, isPass1)
+						if err != nil {
+							return nil, fmt.Errorf("failed to expand conditional body: %w", err)
 						}
+						templates = append(templates, expandedResources...)
 					}
 				}
+			} else if strings.HasPrefix(key, "$for(") {
+				// Expand the loop
+				loopResources, err := h.expandResourceLoop(key, value, evaluator, context, isPass1)
+				if err != nil {
+					return nil, fmt.Errorf("loop error: %w", err)
+				}
+				templates = append(templates, loopResources...)
 			} else {
 				// Regular resource
 				if resourceMap, ok := value.(map[string]interface{}); ok {
@@ -299,6 +316,111 @@ func (h *Hydrator) expandResourceTemplates(resourcesField interface{}, evaluator
 	}
 
 	return templates, nil
+}
+
+// expandResourceLoop expands a $for loop at the resources level
+// This function returns raw templates that still need to be processed by processResourcePass1
+func (h *Hydrator) expandResourceLoop(key string, value interface{}, evaluator *dsl.Evaluator, context map[string]interface{}, isPass1 bool) ([]map[string]interface{}, error) {
+	// Extract loop expression from key: $for(item in .path):
+	if !strings.HasPrefix(key, "$for(") || !strings.HasSuffix(key, "):") {
+		return nil, fmt.Errorf("invalid loop syntax: %s", key)
+	}
+
+	loopExpr := key[5 : len(key)-2]
+
+	// Parse loop expression
+	varName, iterPath, err := dsl.ParseForLoop(loopExpr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse loop expression: %w", err)
+	}
+
+	// Evaluate the iteration path
+	pathExpr, err := dsl.ParseExpression(iterPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse iteration path: %w", err)
+	}
+
+	items, err := evaluator.Evaluate(pathExpr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate iteration path: %w", err)
+	}
+
+	// Ensure items is a slice
+	itemsSlice, ok := items.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("iteration path must evaluate to an array")
+	}
+
+	// Collect all resource templates from all iterations
+	allTemplates := []map[string]interface{}{}
+
+	// Iterate over items
+	for _, item := range itemsSlice {
+		// Create new context with loop variable
+		loopContext := make(map[string]interface{})
+		for k, v := range context {
+			loopContext[k] = v
+		}
+		loopContext[varName] = item
+
+		// Create new evaluator with loop context
+		loopEvaluator := dsl.NewEvaluator(loopContext)
+
+		// Process the loop body based on its type
+		switch bodyValue := value.(type) {
+		case []interface{}:
+			// Array of resource templates - recursively expand to get more templates
+			expandedTemplates, err := h.expandResourceTemplates(bodyValue, loopEvaluator, loopContext, isPass1)
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand loop body: %w", err)
+			}
+
+			// Process each template with the loop evaluator to substitute loop variables
+			for _, template := range expandedTemplates {
+				processedTemplate, err := h.processResourceTemplate(template, loopEvaluator, loopContext)
+				if err != nil {
+					return nil, fmt.Errorf("failed to process template in loop: %w", err)
+				}
+				allTemplates = append(allTemplates, processedTemplate)
+			}
+
+		case map[string]interface{}:
+			// Single resource template - process it with loop evaluator
+			processedTemplate, err := h.processResourceTemplate(bodyValue, loopEvaluator, loopContext)
+			if err != nil {
+				return nil, fmt.Errorf("failed to process template in loop: %w", err)
+			}
+			allTemplates = append(allTemplates, processedTemplate)
+
+		default:
+			return nil, fmt.Errorf("loop body must be an array or map, got %T", value)
+		}
+	}
+
+	return allTemplates, nil
+}
+
+// processResourceTemplate processes a resource template, substituting variables but not processing nested structures
+// This is a lighter version used during template expansion
+func (h *Hydrator) processResourceTemplate(template map[string]interface{}, evaluator *dsl.Evaluator, context map[string]interface{}) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
+	for key, value := range template {
+		// Don't process control structures here - they'll be handled later
+		if strings.HasPrefix(key, "$if(") || strings.HasPrefix(key, "$for(") {
+			result[key] = value
+			continue
+		}
+
+		// Process the value
+		processedValue, err := h.processValue(value, evaluator, context)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process key '%s': %w", key, err)
+		}
+		result[key] = processedValue
+	}
+
+	return result, nil
 }
 
 // hydratePass2 resolves cross-resource references

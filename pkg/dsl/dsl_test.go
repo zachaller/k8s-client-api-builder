@@ -1143,3 +1143,91 @@ func TestResourceReferencesWithComplexNames(t *testing.T) {
 		})
 	}
 }
+
+func TestLoopVariablesInExpressions(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		data     interface{}
+		expected interface{}
+		wantErr  bool
+	}{
+		{
+			name: "loop variable concatenation",
+			expr: "component.name + \"-role\"",
+			data: map[string]interface{}{
+				"component": map[string]interface{}{
+					"name": "my-component",
+				},
+			},
+			expected: "my-component-role",
+		},
+		{
+			name: "loop variable with multiple concatenations",
+			expr: "item.prefix + \"-\" + item.name + \"-\" + item.suffix",
+			data: map[string]interface{}{
+				"item": map[string]interface{}{
+					"prefix": "app",
+					"name":   "service",
+					"suffix": "v1",
+				},
+			},
+			expected: "app-service-v1",
+		},
+		{
+			name: "loop variable in conditional",
+			expr: "if(component.enabled, component.name + \"-enabled\", component.name + \"-disabled\")",
+			data: map[string]interface{}{
+				"component": map[string]interface{}{
+					"name":    "web",
+					"enabled": true,
+				},
+			},
+			expected: "web-enabled",
+		},
+		{
+			name: "nested loop variable",
+			expr: "container.port.number",
+			data: map[string]interface{}{
+				"container": map[string]interface{}{
+					"port": map[string]interface{}{
+						"number": int64(8080),
+					},
+				},
+			},
+			expected: int64(8080),
+		},
+		{
+			name: "loop variable with arithmetic",
+			expr: "item.base + item.increment",
+			data: map[string]interface{}{
+				"item": map[string]interface{}{
+					"base":      int64(100),
+					"increment": int64(50),
+				},
+			},
+			expected: int64(150),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr, err := ParseExpression(tt.expr)
+			if err != nil {
+				t.Fatalf("ParseExpression() error = %v", err)
+			}
+
+			evaluator := NewEvaluator(tt.data)
+			result, err := evaluator.Evaluate(expr)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Evaluate() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("Evaluate() = %v (type %T), want %v (type %T)", result, result, tt.expected, tt.expected)
+			}
+		})
+	}
+}

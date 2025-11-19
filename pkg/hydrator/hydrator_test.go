@@ -658,3 +658,317 @@ func TestNestedLoops(t *testing.T) {
 		})
 	}
 }
+
+// TestResourceLevelLoop_SingleResource tests a loop that generates a single resource per iteration
+func TestResourceLevelLoop_SingleResource(t *testing.T) {
+	h := NewHydrator("", false)
+
+	template := &Template{
+		Resources: map[string]interface{}{
+			"$for(app in .spec.apps):": []interface{}{
+				map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "ConfigMap",
+					"metadata": map[string]interface{}{
+						"name": "$(app.name)",
+					},
+					"data": map[string]interface{}{
+						"port": "$(app.port)",
+					},
+				},
+			},
+		},
+	}
+
+	instance := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"apps": []interface{}{
+				map[string]interface{}{"name": "app1", "port": "8080"},
+				map[string]interface{}{"name": "app2", "port": "9090"},
+			},
+		},
+	}
+
+	resources, err := h.hydratePass1(template, instance)
+	if err != nil {
+		t.Fatalf("hydratePass1() error = %v", err)
+	}
+
+	if len(resources) != 2 {
+		t.Errorf("expected 2 resources, got %d", len(resources))
+	}
+
+	// Check first resource
+	if resources[0]["kind"] != "ConfigMap" {
+		t.Errorf("resource[0] kind = %v, want ConfigMap", resources[0]["kind"])
+	}
+}
+
+// TestResourceLevelLoop_MultipleResources tests a loop that generates multiple resources per iteration
+func TestResourceLevelLoop_MultipleResources(t *testing.T) {
+	h := NewHydrator("", false)
+
+	template := &Template{
+		Resources: map[string]interface{}{
+			"$for(svc in .spec.services):": []interface{}{
+				map[string]interface{}{
+					"apiVersion": "apps/v1",
+					"kind":       "Deployment",
+					"metadata": map[string]interface{}{
+						"name": "$(svc.name)",
+					},
+				},
+				map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "Service",
+					"metadata": map[string]interface{}{
+						"name": "$(svc.name)",
+					},
+				},
+			},
+		},
+	}
+
+	instance := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"services": []interface{}{
+				map[string]interface{}{"name": "frontend"},
+				map[string]interface{}{"name": "backend"},
+			},
+		},
+	}
+
+	resources, err := h.hydratePass1(template, instance)
+	if err != nil {
+		t.Fatalf("hydratePass1() error = %v", err)
+	}
+
+	// 2 services * 2 resources each = 4 total
+	if len(resources) != 4 {
+		t.Errorf("expected 4 resources, got %d", len(resources))
+	}
+
+	// Check resource kinds
+	deploymentCount := 0
+	serviceCount := 0
+	for _, r := range resources {
+		if r["kind"] == "Deployment" {
+			deploymentCount++
+		} else if r["kind"] == "Service" {
+			serviceCount++
+		}
+	}
+
+	if deploymentCount != 2 {
+		t.Errorf("expected 2 Deployments, got %d", deploymentCount)
+	}
+	if serviceCount != 2 {
+		t.Errorf("expected 2 Services, got %d", serviceCount)
+	}
+}
+
+// TestResourceLevelLoop_Nested tests nested loops at the resources level
+func TestResourceLevelLoop_Nested(t *testing.T) {
+	h := NewHydrator("", false)
+
+	template := &Template{
+		Resources: map[string]interface{}{
+			"$for(env in .spec.environments):": []interface{}{
+				map[string]interface{}{
+					"$for(app in env.apps):": []interface{}{
+						map[string]interface{}{
+							"apiVersion": "v1",
+							"kind":       "ConfigMap",
+							"metadata": map[string]interface{}{
+								"name": "$(env.name + \"-\" + app.name)",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	instance := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"environments": []interface{}{
+				map[string]interface{}{
+					"name": "dev",
+					"apps": []interface{}{
+						map[string]interface{}{"name": "app1"},
+						map[string]interface{}{"name": "app2"},
+					},
+				},
+				map[string]interface{}{
+					"name": "prod",
+					"apps": []interface{}{
+						map[string]interface{}{"name": "app1"},
+					},
+				},
+			},
+		},
+	}
+
+	resources, err := h.hydratePass1(template, instance)
+	if err != nil {
+		t.Fatalf("hydratePass1() error = %v", err)
+	}
+
+	// 2 dev apps + 1 prod app = 3 total
+	if len(resources) != 3 {
+		t.Errorf("expected 3 resources, got %d", len(resources))
+	}
+}
+
+// TestResourceLevelLoop_WithConditionals tests loops containing conditionals
+func TestResourceLevelLoop_WithConditionals(t *testing.T) {
+	h := NewHydrator("", false)
+
+	template := &Template{
+		Resources: map[string]interface{}{
+			"$for(component in .spec.components):": []interface{}{
+				map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "ConfigMap",
+					"metadata": map[string]interface{}{
+						"name": "$(component.name)",
+					},
+				},
+				map[string]interface{}{
+					"$if(component.needsService):": map[string]interface{}{
+						"apiVersion": "v1",
+						"kind":       "Service",
+						"metadata": map[string]interface{}{
+							"name": "$(component.name)",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	instance := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"components": []interface{}{
+				map[string]interface{}{"name": "comp1", "needsService": true},
+				map[string]interface{}{"name": "comp2", "needsService": false},
+				map[string]interface{}{"name": "comp3", "needsService": true},
+			},
+		},
+	}
+
+	resources, err := h.hydratePass1(template, instance)
+	if err != nil {
+		t.Fatalf("hydratePass1() error = %v", err)
+	}
+
+	// 3 ConfigMaps + 2 Services (only comp1 and comp3 have needsService=true)
+	if len(resources) != 5 {
+		t.Errorf("expected 5 resources, got %d", len(resources))
+	}
+
+	configMapCount := 0
+	serviceCount := 0
+	for _, r := range resources {
+		if r["kind"] == "ConfigMap" {
+			configMapCount++
+		} else if r["kind"] == "Service" {
+			serviceCount++
+		}
+	}
+
+	if configMapCount != 3 {
+		t.Errorf("expected 3 ConfigMaps, got %d", configMapCount)
+	}
+	if serviceCount != 2 {
+		t.Errorf("expected 2 Services, got %d", serviceCount)
+	}
+}
+
+// TestResourceLevelLoop_EmptyArray tests a loop with an empty array
+func TestResourceLevelLoop_EmptyArray(t *testing.T) {
+	h := NewHydrator("", false)
+
+	template := &Template{
+		Resources: map[string]interface{}{
+			"$for(item in .spec.items):": []interface{}{
+				map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "ConfigMap",
+					"metadata": map[string]interface{}{
+						"name": "$(item.name)",
+					},
+				},
+			},
+		},
+	}
+
+	instance := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"items": []interface{}{},
+		},
+	}
+
+	resources, err := h.hydratePass1(template, instance)
+	if err != nil {
+		t.Fatalf("hydratePass1() error = %v", err)
+	}
+
+	if len(resources) != 0 {
+		t.Errorf("expected 0 resources, got %d", len(resources))
+	}
+}
+
+// TestResourceLevelLoop_ConditionalContainingLoop tests $if containing $for
+func TestResourceLevelLoop_ConditionalContainingLoop(t *testing.T) {
+	h := NewHydrator("", false)
+
+	template := &Template{
+		Resources: map[string]interface{}{
+			"$if(.spec.enabled):": []interface{}{
+				map[string]interface{}{
+					"$for(app in .spec.apps):": []interface{}{
+						map[string]interface{}{
+							"apiVersion": "v1",
+							"kind":       "ConfigMap",
+							"metadata": map[string]interface{}{
+								"name": "$(app.name)",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Test with enabled=true
+	instance := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"enabled": true,
+			"apps": []interface{}{
+				map[string]interface{}{"name": "app1"},
+				map[string]interface{}{"name": "app2"},
+			},
+		},
+	}
+
+	resources, err := h.hydratePass1(template, instance)
+	if err != nil {
+		t.Fatalf("hydratePass1() error = %v", err)
+	}
+
+	if len(resources) != 2 {
+		t.Errorf("expected 2 resources when enabled=true, got %d", len(resources))
+	}
+
+	// Test with enabled=false
+	instance["spec"].(map[string]interface{})["enabled"] = false
+	resources, err = h.hydratePass1(template, instance)
+	if err != nil {
+		t.Fatalf("hydratePass1() error = %v", err)
+	}
+
+	if len(resources) != 0 {
+		t.Errorf("expected 0 resources when enabled=false, got %d", len(resources))
+	}
+}
