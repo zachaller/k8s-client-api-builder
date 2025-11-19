@@ -1,0 +1,4 @@
+domain: platform.example.com
+repo: github.com/example/my-platform
+projectName: my-platform
+version: "1"

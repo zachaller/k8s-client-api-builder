@@ -21,24 +21,13 @@ type WebServiceSpec struct {
 	// +kubebuilder:validation:Maximum=65535
 	Port int32 `json:"port"`
 	
-	// EnableHA enables high availability configuration
+	// EnableIngress enables ingress creation
 	// +kubebuilder:default=false
-	EnableHA bool `json:"enableHA,omitempty"`
+	EnableIngress bool `json:"enableIngress,omitempty"`
 	
-	// Resources defines resource requirements
+	// Domain is the domain for the ingress (required if enableIngress is true)
 	// +optional
-	Resources *ResourceRequirements `json:"resources,omitempty"`
-}
-
-// ResourceRequirements defines resource requirements
-type ResourceRequirements struct {
-	// CPU request (e.g., "100m", "1")
-	// +optional
-	CPU string `json:"cpu,omitempty"`
-	
-	// Memory request (e.g., "128Mi", "1Gi")
-	// +optional
-	Memory string `json:"memory,omitempty"`
+	Domain string `json:"domain,omitempty"`
 }
 
 // WebServiceStatus defines the observed state of WebService

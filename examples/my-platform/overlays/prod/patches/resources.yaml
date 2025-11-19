@@ -3,7 +3,8 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-app
+  name: api-service
+  namespace: production
 spec:
   template:
     spec:
@@ -11,9 +12,8 @@ spec:
       - name: app
         resources:
           requests:
-            cpu: "500m"
-            memory: "512Mi"
+            cpu: "1"
+            memory: "1Gi"
           limits:
             cpu: "2"
             memory: "2Gi"
-

@@ -1,0 +1,10 @@
+apiVersion: platform.example.com/v1alpha1
+kind: WebService
+metadata:
+  name: web_service-sample
+  namespace: default
+spec:
+  # Add your spec fields here
+  # Example:
+  # name: example
+  # replicas: 3

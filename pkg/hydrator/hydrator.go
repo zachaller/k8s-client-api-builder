@@ -27,7 +27,7 @@ func NewHydrator(templateDir string, verbose bool) *Hydrator {
 
 // Template represents a hydration template
 type Template struct {
-	Resources []map[string]interface{} `yaml:"resources"`
+	Resources interface{} `yaml:"resources"` // Can be []interface{} or map with conditionals
 }
 
 // HydrateResult contains the hydrated resources
@@ -92,15 +92,22 @@ func (h *Hydrator) hydratePass1(template *Template, instance map[string]interfac
 	resources := []map[string]interface{}{}
 	
 	// Create evaluator with instance data (no resources yet)
+	// Set a flag to skip resource reference evaluation in pass 1
 	evaluator := dsl.NewEvaluator(instance)
 	
-	// Process each resource in the template
-	for i, resourceTemplate := range template.Resources {
+	// Process template resources (handle both array and map with conditionals)
+	resourceTemplates, err := h.expandResourceTemplates(template.Resources, evaluator, instance, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand resource templates: %w", err)
+	}
+	
+	// Process each resource template
+	for i, resourceTemplate := range resourceTemplates {
 		if h.verbose {
-			fmt.Printf("Pass 1: Processing resource %d/%d\n", i+1, len(template.Resources))
+			fmt.Printf("Pass 1: Processing resource %d/%d\n", i+1, len(resourceTemplates))
 		}
 		
-		resource, err := h.processResource(resourceTemplate, evaluator, instance)
+		resource, err := h.processResourcePass1(resourceTemplate, evaluator, instance)
 		if err != nil {
 			return nil, fmt.Errorf("resource %d: %w", i, err)
 		}
@@ -117,6 +124,181 @@ func (h *Hydrator) hydratePass1(template *Template, instance map[string]interfac
 	}
 	
 	return resources, nil
+}
+
+// processResourcePass1 processes a resource in pass 1, leaving resource references as placeholders
+func (h *Hydrator) processResourcePass1(template map[string]interface{}, evaluator *dsl.Evaluator, context map[string]interface{}) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+	
+	for key, value := range template {
+		// Check for control structures
+		if strings.HasPrefix(key, "$if(") {
+			// Handle conditional
+			processed, err := h.processConditional(key, value, evaluator, context)
+			if err != nil {
+				return nil, err
+			}
+			if processed != nil {
+				// Merge conditional results into parent
+				for k, v := range processed {
+					result[k] = v
+				}
+			}
+			continue
+		}
+		
+		if strings.HasPrefix(key, "$for(") {
+			// Handle loop
+			_, err := h.processLoop(key, value, evaluator, context)
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("$for at resource level not yet supported")
+		}
+		
+		// Process the value, but keep resource references as strings (don't evaluate)
+		processedValue, err := h.processValuePass1(value, evaluator, context)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process key '%s': %w", key, err)
+		}
+		
+		result[key] = processedValue
+	}
+	
+	return result, nil
+}
+
+// processValuePass1 processes a value in pass 1, keeping resource references as-is
+func (h *Hydrator) processValuePass1(value interface{}, evaluator *dsl.Evaluator, context map[string]interface{}) (interface{}, error) {
+	switch v := value.(type) {
+	case string:
+		// Check if string contains resource() - if so, keep as-is for pass 2
+		if strings.Contains(v, "resource(") {
+			return v, nil
+		}
+		// Evaluate other expressions
+		return evaluator.EvaluateString(v)
+		
+	case map[string]interface{}:
+		// Recursively process map
+		result := make(map[string]interface{})
+		for key, val := range v {
+			// Check for control structures
+			if strings.HasPrefix(key, "$if(") {
+				processed, err := h.processConditional(key, val, evaluator, context)
+				if err != nil {
+					return nil, err
+				}
+				if processed != nil {
+					for k, pv := range processed {
+						result[k] = pv
+					}
+				}
+				continue
+			}
+			
+			if strings.HasPrefix(key, "$for(") {
+				processed, err := h.processLoop(key, val, evaluator, context)
+				if err != nil {
+					return nil, err
+				}
+				// For loops in maps should return an array
+				return processed, nil
+			}
+			
+			processedVal, err := h.processValuePass1(val, evaluator, context)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = processedVal
+		}
+		return result, nil
+		
+	case []interface{}:
+		// Recursively process slice
+		result := make([]interface{}, 0, len(v))
+		for _, item := range v {
+			processedItem, err := h.processValuePass1(item, evaluator, context)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, processedItem)
+		}
+		return result, nil
+		
+	default:
+		// Return primitive values as-is
+		return v, nil
+	}
+}
+
+// expandResourceTemplates expands the resources field, handling conditionals
+func (h *Hydrator) expandResourceTemplates(resourcesField interface{}, evaluator *dsl.Evaluator, context map[string]interface{}, isPass1 bool) ([]map[string]interface{}, error) {
+	templates := []map[string]interface{}{}
+	
+	switch v := resourcesField.(type) {
+	case []interface{}:
+		// Array of resources (may contain maps with conditionals)
+		for _, item := range v {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				// Check if this resource has a conditional key
+				hasConditional := false
+				for key := range itemMap {
+					if strings.HasPrefix(key, "$if(") {
+						hasConditional = true
+						// Evaluate only the condition, not the content
+						shouldInclude, err := h.evaluateCondition(key, evaluator)
+						if err != nil {
+							return nil, fmt.Errorf("conditional error: %w", err)
+						}
+						
+						// If condition is true, add the resource content as-is (don't process yet)
+						if shouldInclude {
+							if contentMap, ok := itemMap[key].(map[string]interface{}); ok {
+								templates = append(templates, contentMap)
+							}
+						}
+						break
+					}
+				}
+				
+				// If no conditional, add the resource as-is
+				if !hasConditional {
+					templates = append(templates, itemMap)
+				}
+			}
+		}
+	case map[string]interface{}:
+		// Map that might contain conditionals at top level
+		for key, value := range v {
+			if strings.HasPrefix(key, "$if(") {
+				// Evaluate only the condition
+				shouldInclude, err := h.evaluateCondition(key, evaluator)
+				if err != nil {
+					return nil, fmt.Errorf("conditional error: %w", err)
+				}
+				
+				// If condition is true, add the resources
+				if shouldInclude {
+					// The value should be an array of resources
+					if valueArray, ok := value.([]interface{}); ok {
+						for _, item := range valueArray {
+							if itemMap, ok := item.(map[string]interface{}); ok {
+								templates = append(templates, itemMap)
+							}
+						}
+					}
+				}
+			} else {
+				// Regular resource
+				if resourceMap, ok := value.(map[string]interface{}); ok {
+					templates = append(templates, resourceMap)
+				}
+			}
+		}
+	}
+	
+	return templates, nil
 }
 
 // hydratePass2 resolves cross-resource references
@@ -340,6 +522,39 @@ func (h *Hydrator) processValue(value interface{}, evaluator *dsl.Evaluator, con
 	default:
 		// Return primitive values as-is
 		return v, nil
+	}
+}
+
+// evaluateCondition evaluates just the condition part of $if(...): without processing the value
+func (h *Hydrator) evaluateCondition(key string, evaluator *dsl.Evaluator) (bool, error) {
+	// Extract condition from key: $if(condition):
+	if !strings.HasPrefix(key, "$if(") || !strings.HasSuffix(key, "):") {
+		return false, fmt.Errorf("invalid conditional syntax: %s", key)
+	}
+	
+	condition := key[4 : len(key)-2]
+	
+	// Parse and evaluate condition
+	expr, err := dsl.ParseExpression(condition)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse condition '%s': %w", condition, err)
+	}
+	
+	result, err := evaluator.Evaluate(expr)
+	if err != nil {
+		return false, fmt.Errorf("failed to evaluate condition '%s': %w", condition, err)
+	}
+	
+	// Check if condition is true
+	switch v := result.(type) {
+	case bool:
+		return v, nil
+	case string:
+		return v != "" && v != "false", nil
+	case int, int32, int64:
+		return v != 0, nil
+	default:
+		return result != nil, nil
 	}
 }
 

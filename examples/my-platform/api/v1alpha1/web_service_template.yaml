@@ -1,5 +1,5 @@
 # Hydration template for WebService
-# This template defines how a WebService instance expands into Kubernetes resources
+# Demonstrates: variable substitution, conditionals, and resource references
 
 resources:
   # Generate a Deployment
@@ -10,7 +10,6 @@ resources:
       namespace: $(.metadata.namespace)
       labels:
         app: $(.metadata.name)
-        managed-by: webservice
     spec:
       replicas: $(.spec.replicas)
       selector:
@@ -26,7 +25,6 @@ resources:
             image: $(.spec.image)
             ports:
             - containerPort: $(.spec.port)
-              protocol: TCP
 
   # Generate a Service
   - apiVersion: v1
@@ -44,4 +42,36 @@ resources:
       - name: http
         port: $(.spec.port)
         targetPort: $(.spec.port)
-        protocol: TCP
+  
+  # Conditionally generate an Ingress (demonstrates resource references)
+  - "$if(.spec.enableIngress):":
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: $(.metadata.name)
+        namespace: $(.metadata.namespace)
+      spec:
+        rules:
+        - host: $(.spec.domain)
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  # Resource reference: dynamically get Service name
+                  name: $(resource("v1", "Service", .metadata.name).metadata.name)
+                  port:
+                    # Resource reference: dynamically get Service port
+                    number: $(resource("v1", "Service", .metadata.name).spec.ports[0].port)
+  
+  # ConfigMap with resource references
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: $(.metadata.name + "-config")
+      namespace: $(.metadata.namespace)
+    data:
+      SERVICE_NAME: $(resource("v1", "Service", .metadata.name).metadata.name)
+      SERVICE_PORT: $(resource("v1", "Service", .metadata.name).spec.ports[0].port)
+      SERVICE_URL: $(.metadata.name + ":" + resource("v1", "Service", .metadata.name).spec.ports[0].port)

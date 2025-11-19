@@ -1,0 +1,12 @@
+apiVersion: platform.example.com/v1alpha1
+kind: WebService
+metadata:
+  name: api-service
+  namespace: production
+spec:
+  image: myapp/api:v2.0.0
+  replicas: 5
+  port: 8080
+  enableIngress: true
+  domain: api.example.com
+

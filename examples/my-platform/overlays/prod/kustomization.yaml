@@ -30,4 +30,3 @@ namePrefix: prod-
 
 # Optional: Override namespace
 namespace: production
-
