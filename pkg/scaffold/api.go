@@ -31,13 +31,13 @@ func (s *APIScaffolder) Scaffold() error {
 	if _, err := os.Stat("PROJECT"); err != nil {
 		return fmt.Errorf("not in a KRM project directory (PROJECT file not found)")
 	}
-	
+
 	// Read project config
 	projectData, err := os.ReadFile("PROJECT")
 	if err != nil {
 		return fmt.Errorf("failed to read PROJECT file: %w", err)
 	}
-	
+
 	// Parse domain from PROJECT file
 	domain := ""
 	for _, line := range strings.Split(string(projectData), "\n") {
@@ -46,27 +46,27 @@ func (s *APIScaffolder) Scaffold() error {
 			break
 		}
 	}
-	
+
 	if domain == "" {
 		return fmt.Errorf("domain not found in PROJECT file")
 	}
-	
+
 	apiDir := filepath.Join("api", s.config.Version)
-	
+
 	// Create API directory if it doesn't exist
 	if err := os.MkdirAll(apiDir, 0755); err != nil {
 		return fmt.Errorf("failed to create API directory: %w", err)
 	}
-	
+
 	// Generate files
 	snakeName := ToSnakeCase(s.config.Kind)
-	
+
 	files := map[string]string{
-		filepath.Join(apiDir, snakeName+"_types.go"):     s.generateTypesFile(domain),
-		filepath.Join(apiDir, snakeName+"_template.yaml"): s.generateTemplateFile(),
+		filepath.Join(apiDir, snakeName+"_types.go"):       s.generateTypesFile(domain),
+		filepath.Join(apiDir, snakeName+"_template.yaml"):  s.generateTemplateFile(),
 		filepath.Join("config/samples", snakeName+".yaml"): s.generateSampleFile(domain),
 	}
-	
+
 	for filename, content := range files {
 		if s.config.Verbose {
 			fmt.Printf("Creating file: %s\n", filename)
@@ -75,12 +75,12 @@ func (s *APIScaffolder) Scaffold() error {
 			return fmt.Errorf("failed to write file %s: %w", filename, err)
 		}
 	}
-	
+
 	// Update register.go to include new type
 	if err := s.updateRegister(apiDir); err != nil {
 		return fmt.Errorf("failed to update register.go: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -210,20 +210,20 @@ spec:
 
 func (s *APIScaffolder) updateRegister(apiDir string) error {
 	registerPath := filepath.Join(apiDir, "register.go")
-	
+
 	// Read existing register.go if it exists
 	content, err := os.ReadFile(registerPath)
 	if err != nil {
 		// File doesn't exist, create it
 		return nil
 	}
-	
+
 	// Check if the type is already registered
 	if strings.Contains(string(content), "&"+s.config.Kind+"{") {
 		// Already registered
 		return nil
 	}
-	
+
 	// Update the addKnownTypes function to include the new type
 	// This is a simple approach - in production you'd want more sophisticated parsing
 	updated := strings.Replace(string(content),
@@ -231,7 +231,7 @@ func (s *APIScaffolder) updateRegister(apiDir string) error {
 		fmt.Sprintf("func addKnownTypes(scheme *runtime.Scheme) error {\n\tscheme.AddKnownTypes(SchemeGroupVersion,\n\t\t&%s{},\n\t\t&%sList{}",
 			s.config.Kind, s.config.Kind),
 		1)
-	
+
 	return os.WriteFile(registerPath, []byte(updated), 0644)
 }
 
@@ -255,4 +255,3 @@ func ToLowerPlural(s string) string {
 	}
 	return lower + "s"
 }
-

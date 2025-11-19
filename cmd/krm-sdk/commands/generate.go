@@ -21,25 +21,25 @@ This command runs controller-gen to generate:
 This command should be run from within a KRM project directory.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		verbose, _ := cmd.Flags().GetBool("verbose")
-		
+
 		// Check if we're in a project directory
 		if _, err := os.Stat("PROJECT"); err != nil {
 			return fmt.Errorf("not in a KRM project directory (PROJECT file not found)")
 		}
-		
+
 		if verbose {
 			fmt.Println("Running code generation...")
 		}
-		
+
 		// Run make generate
 		makeCmd := exec.Command("make", "generate")
 		makeCmd.Stdout = os.Stdout
 		makeCmd.Stderr = os.Stderr
-		
+
 		if err := makeCmd.Run(); err != nil {
 			return fmt.Errorf("failed to run make generate: %w", err)
 		}
-		
+
 		fmt.Println("\n✓ Code generation completed successfully!")
 		return nil
 	},
@@ -48,4 +48,3 @@ This command should be run from within a KRM project directory.`,
 func init() {
 	rootCmd.AddCommand(generateCmd)
 }
-

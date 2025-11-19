@@ -98,7 +98,7 @@ package myapi_test
 
 import (
     "testing"
-    krmtesting "github.com/yourusername/krm-sdk/pkg/testing"
+    krmtesting "github.com/zachaller/k8s-client-api-builder/pkg/testing"
 )
 
 func TestWebServiceGeneration(t *testing.T) {
@@ -494,7 +494,7 @@ package v1alpha1_test
 
 import (
     "testing"
-    krmtesting "github.com/yourusername/krm-sdk/pkg/testing"
+    krmtesting "github.com/zachaller/k8s-client-api-builder/pkg/testing"
 )
 
 func TestDatabaseHydration(t *testing.T) {

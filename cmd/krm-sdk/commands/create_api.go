@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/yourusername/krm-sdk/pkg/scaffold"
+	"github.com/zachaller/k8s-client-api-builder/pkg/scaffold"
 )
 
 var (
@@ -30,20 +30,20 @@ Example:
 		if apiGroup == "" || apiVersion == "" || apiKind == "" {
 			return fmt.Errorf("--group, --version, and --kind are required")
 		}
-		
+
 		verbose, _ := cmd.Flags().GetBool("verbose")
-		
+
 		scaffolder := scaffold.NewAPIScaffolder(scaffold.APIConfig{
 			Group:   apiGroup,
 			Version: apiVersion,
 			Kind:    apiKind,
 			Verbose: verbose,
 		})
-		
+
 		if err := scaffolder.Scaffold(); err != nil {
 			return fmt.Errorf("failed to scaffold API: %w", err)
 		}
-		
+
 		fmt.Printf("\n✓ API '%s' created successfully!\n\n", apiKind)
 		fmt.Println("Next steps:")
 		fmt.Printf("  1. Edit api/%s/%s_types.go to add fields and validation\n", apiVersion, scaffold.ToSnakeCase(apiKind))
@@ -51,14 +51,14 @@ Example:
 		fmt.Println("  3. Run 'make generate' to update generated code")
 		fmt.Println("  4. Run 'make build' to build the project binary")
 		fmt.Println()
-		
+
 		return nil
 	},
 }
 
 func init() {
 	createCmd.AddCommand(createAPICmd)
-	
+
 	createAPICmd.Flags().StringVar(&apiGroup, "group", "", "API group name (required)")
 	createAPICmd.Flags().StringVar(&apiVersion, "version", "", "API version (required)")
 	createAPICmd.Flags().StringVar(&apiKind, "kind", "", "API kind name (required)")
@@ -66,4 +66,3 @@ func init() {
 	createAPICmd.MarkFlagRequired("version")
 	createAPICmd.MarkFlagRequired("kind")
 }
-

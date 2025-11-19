@@ -42,31 +42,31 @@ func (v *Validator) LoadSchemas() error {
 	if v.crdDir == "" {
 		v.crdDir = "config/crd"
 	}
-	
+
 	if _, err := os.Stat(v.crdDir); os.IsNotExist(err) {
 		return fmt.Errorf("CRD directory not found: %s", v.crdDir)
 	}
-	
+
 	files, err := ioutil.ReadDir(v.crdDir)
 	if err != nil {
 		return fmt.Errorf("failed to read CRD directory: %w", err)
 	}
-	
+
 	for _, file := range files {
 		if file.IsDir() || !strings.HasSuffix(file.Name(), ".yaml") {
 			continue
 		}
-		
+
 		path := filepath.Join(v.crdDir, file.Name())
 		if v.verbose {
 			fmt.Printf("Loading CRD schema: %s\n", path)
 		}
-		
+
 		if err := v.loadCRD(path); err != nil {
 			return fmt.Errorf("failed to load CRD %s: %w", path, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -76,27 +76,27 @@ func (v *Validator) loadCRD(path string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	var crd apiextensionsv1.CustomResourceDefinition
 	if err := yaml.Unmarshal(data, &crd); err != nil {
 		return fmt.Errorf("failed to parse CRD: %w", err)
 	}
-	
+
 	// Extract validation schema for each version
 	for _, version := range crd.Spec.Versions {
 		key := fmt.Sprintf("%s/%s/%s", crd.Spec.Group, version.Name, crd.Spec.Names.Kind)
-		
+
 		if version.Schema != nil && version.Schema.OpenAPIV3Schema != nil {
 			v.schemas[key] = &apiextensionsv1.CustomResourceValidation{
 				OpenAPIV3Schema: version.Schema.OpenAPIV3Schema,
 			}
-			
+
 			if v.verbose {
 				fmt.Printf("Loaded schema for: %s\n", key)
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -106,7 +106,7 @@ func (v *Validator) Validate(instance map[string]interface{}) (*ValidationResult
 		Valid:  true,
 		Errors: []string{},
 	}
-	
+
 	// Extract metadata
 	apiVersion, ok := instance["apiVersion"].(string)
 	if !ok {
@@ -114,17 +114,17 @@ func (v *Validator) Validate(instance map[string]interface{}) (*ValidationResult
 		result.Errors = append(result.Errors, "missing or invalid 'apiVersion' field")
 		return result, nil
 	}
-	
+
 	kind, ok := instance["kind"].(string)
 	if !ok {
 		result.Valid = false
 		result.Errors = append(result.Errors, "missing or invalid 'kind' field")
 		return result, nil
 	}
-	
+
 	// Build schema key
 	key := fmt.Sprintf("%s/%s", apiVersion, kind)
-	
+
 	schema, ok := v.schemas[key]
 	if !ok {
 		// Try to load schemas if not already loaded
@@ -134,27 +134,27 @@ func (v *Validator) Validate(instance map[string]interface{}) (*ValidationResult
 			}
 			schema, ok = v.schemas[key]
 		}
-		
+
 		if !ok {
 			return nil, fmt.Errorf("schema not found for %s", key)
 		}
 	}
-	
+
 	// Validate against OpenAPI schema
 	if schema.OpenAPIV3Schema != nil {
 		u := &unstructured.Unstructured{Object: instance}
-		
+
 		// Convert v1 schema to internal schema for validation
 		var internalSchema apiextensions.JSONSchemaProps
 		if err := apiextensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(schema.OpenAPIV3Schema, &internalSchema, nil); err != nil {
 			return nil, fmt.Errorf("failed to convert schema: %w", err)
 		}
-		
+
 		validator, _, err := validation.NewSchemaValidator(&internalSchema)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create validator: %w", err)
 		}
-		
+
 		errs := validation.ValidateCustomResource(field.NewPath(""), u.Object, validator)
 		if len(errs) > 0 {
 			result.Valid = false
@@ -163,7 +163,7 @@ func (v *Validator) Validate(instance map[string]interface{}) (*ValidationResult
 			}
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -173,12 +173,11 @@ func (v *Validator) ValidateFile(path string) (*ValidationResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
-	
+
 	var instance map[string]interface{}
 	if err := yaml.Unmarshal(data, &instance); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
-	
+
 	return v.Validate(instance)
 }
-

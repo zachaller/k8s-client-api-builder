@@ -32,21 +32,21 @@ func NewProjectScaffolder(config ProjectConfig) *ProjectScaffolder {
 // Scaffold creates a new project structure
 func (s *ProjectScaffolder) Scaffold() error {
 	projectDir := s.config.Name
-	
+
 	// Check if directory already exists
 	if _, err := os.Stat(projectDir); err == nil {
 		return fmt.Errorf("directory '%s' already exists", projectDir)
 	}
-	
+
 	if s.config.Verbose {
 		fmt.Printf("Creating project directory: %s\n", projectDir)
 	}
-	
+
 	// Create project directory
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
-	
+
 	// Create subdirectories
 	dirs := []string{
 		"cmd/" + s.config.Name,
@@ -64,7 +64,7 @@ func (s *ProjectScaffolder) Scaffold() error {
 		"instances",
 		"hack",
 	}
-	
+
 	for _, dir := range dirs {
 		path := filepath.Join(projectDir, dir)
 		if s.config.Verbose {
@@ -74,28 +74,28 @@ func (s *ProjectScaffolder) Scaffold() error {
 			return fmt.Errorf("failed to create directory %s: %w", path, err)
 		}
 	}
-	
+
 	// Generate files
 	files := map[string]string{
-		"go.mod":                                        s.generateGoMod(),
-		"PROJECT":                                       s.generateProjectFile(),
-		"Makefile":                                      s.generateMakefile(),
-		"README.md":                                     s.generateReadme(),
-		".gitignore":                                    s.generateGitignore(),
-		"cmd/" + s.config.Name + "/main.go":            s.generateMain(),
-		"cmd/" + s.config.Name + "/commands/root.go":   s.generateCommands(),
-		"api/v1alpha1/groupversion_info.go":            s.generateGroupVersionInfo(),
-		"api/v1alpha1/register.go":                     s.generateRegister(),
-		"hack/boilerplate.go.txt":                      s.generateBoilerplate(),
-		"base/.gitkeep":                                 "",
-		"overlays/dev/kustomization.yaml":              s.generateDevKustomization(),
-		"overlays/dev/patches/replicas.yaml":           s.generateDevReplicasPatch(),
-		"overlays/staging/kustomization.yaml":          s.generateStagingKustomization(),
-		"overlays/prod/kustomization.yaml":             s.generateProdKustomization(),
-		"overlays/prod/patches/replicas.yaml":          s.generateProdReplicasPatch(),
-		"overlays/prod/patches/resources.yaml":         s.generateProdResourcesPatch(),
+		"go.mod":                            s.generateGoMod(),
+		"PROJECT":                           s.generateProjectFile(),
+		"Makefile":                          s.generateMakefile(),
+		"README.md":                         s.generateReadme(),
+		".gitignore":                        s.generateGitignore(),
+		"cmd/" + s.config.Name + "/main.go": s.generateMain(),
+		"cmd/" + s.config.Name + "/commands/root.go": s.generateCommands(),
+		"api/v1alpha1/groupversion_info.go":          s.generateGroupVersionInfo(),
+		"api/v1alpha1/register.go":                   s.generateRegister(),
+		"hack/boilerplate.go.txt":                    s.generateBoilerplate(),
+		"base/.gitkeep":                              "",
+		"overlays/dev/kustomization.yaml":            s.generateDevKustomization(),
+		"overlays/dev/patches/replicas.yaml":         s.generateDevReplicasPatch(),
+		"overlays/staging/kustomization.yaml":        s.generateStagingKustomization(),
+		"overlays/prod/kustomization.yaml":           s.generateProdKustomization(),
+		"overlays/prod/patches/replicas.yaml":        s.generateProdReplicasPatch(),
+		"overlays/prod/patches/resources.yaml":       s.generateProdResourcesPatch(),
 	}
-	
+
 	for filename, content := range files {
 		path := filepath.Join(projectDir, filename)
 		if s.config.Verbose {
@@ -105,7 +105,7 @@ func (s *ProjectScaffolder) Scaffold() error {
 			return fmt.Errorf("failed to write file %s: %w", path, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -116,14 +116,14 @@ go 1.21
 
 require (
 	github.com/spf13/cobra v1.10.1
-	github.com/yourusername/krm-sdk v0.1.0
+	github.com/zachaller/k8s-client-api-builder v0.1.0
 	k8s.io/apimachinery v0.34.2
 	k8s.io/apiextensions-apiserver v0.34.2
 	sigs.k8s.io/yaml v1.6.0
 )
 
-// Local development: Uncomment and update path to your local krm-sdk
-// replace github.com/yourusername/krm-sdk => /path/to/krm-sdk
+// Local development: Uncomment and update path to your local k8s-client-api-builder
+// replace github.com/zachaller/k8s-client-api-builder => /path/to/k8s-client-api-builder
 `, s.config.Repo)
 }
 
@@ -445,7 +445,7 @@ func (s *ProjectScaffolder) generateCommands() string {
 	return fmt.Sprintf(`package commands
 
 import (
-	"github.com/yourusername/krm-sdk/pkg/cli"
+	"github.com/zachaller/k8s-client-api-builder/pkg/cli"
 )
 
 // Execute runs the root command
@@ -613,4 +613,3 @@ spec:
             memory: "2Gi"
 `
 }
-

@@ -103,4 +103,3 @@ func TestToLowerPlural(t *testing.T) {
 		})
 	}
 }
-

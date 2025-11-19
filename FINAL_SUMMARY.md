@@ -117,7 +117,7 @@ Successfully implemented a complete, production-ready framework for building cli
 ### Install Framework
 
 ```bash
-go install github.com/yourusername/krm-sdk/cmd/krm-sdk@latest
+go install github.com/zachaller/k8s-client-api-builder/cmd/krm-sdk@latest
 ```
 
 ### Create Platform

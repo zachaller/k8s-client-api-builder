@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	krmtesting "github.com/yourusername/krm-sdk/pkg/testing"
+	krmtesting "github.com/zachaller/k8s-client-api-builder/pkg/testing"
 )
 
 func TestProjectScaffolding(t *testing.T) {
@@ -100,4 +100,3 @@ func TestAPIScaffolding(t *testing.T) {
 		}
 	}
 }
-

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yourusername/krm-sdk/cmd/krm-sdk/commands"
+	"github.com/zachaller/k8s-client-api-builder/cmd/krm-sdk/commands"
 )
 
 func main() {
@@ -13,4 +13,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-

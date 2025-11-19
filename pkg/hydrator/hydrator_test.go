@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yourusername/krm-sdk/pkg/dsl"
+	"github.com/zachaller/k8s-client-api-builder/pkg/dsl"
 )
 
 // NewEvaluator is a helper to create evaluators for testing
@@ -148,9 +148,9 @@ func TestProcessConditional(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create evaluator with context
 			evaluator := NewEvaluator(tt.context)
-			
+
 			result, err := h.processConditional(tt.key, tt.value, evaluator, tt.context)
-			
+
 			if tt.shouldAdd {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
@@ -210,4 +210,3 @@ func TestFindTemplate(t *testing.T) {
 		t.Errorf("expected empty string for non-existent template, got %s", notFound)
 	}
 }
-

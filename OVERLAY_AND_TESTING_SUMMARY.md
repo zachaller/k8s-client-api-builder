@@ -241,7 +241,7 @@ make coverage            # Coverage report
 **Replace Directive** in generated projects:
 ```go
 // go.mod
-replace github.com/yourusername/krm-sdk => /path/to/krm-sdk
+replace github.com/zachaller/k8s-client-api-builder => /path/to/k8s-client-api-builder
 ```
 
 **Test Framework** automatically adds replace directive for testing.

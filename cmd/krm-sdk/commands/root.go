@@ -32,4 +32,3 @@ func init() {
 	// Global flags can be added here
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 }
-

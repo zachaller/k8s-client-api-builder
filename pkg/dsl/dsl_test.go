@@ -275,4 +275,3 @@ func TestCombinedFeatures(t *testing.T) {
 		})
 	}
 }
-

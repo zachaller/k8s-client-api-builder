@@ -16,14 +16,14 @@ func BuildRootCommand(projectName string) *cobra.Command {
 
 It validates and hydrates custom abstractions into Kubernetes resources.`, projectName),
 	}
-	
+
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
-	
+
 	// Add subcommands
 	rootCmd.AddCommand(BuildGenerateCommand())
 	rootCmd.AddCommand(BuildValidateCommand())
 	rootCmd.AddCommand(BuildApplyCommand())
-	
+
 	return rootCmd
 }
 
@@ -34,7 +34,7 @@ func BuildGenerateCommand() *cobra.Command {
 		overlay   string
 		validate  bool
 	)
-	
+
 	cmd := &cobra.Command{
 		Use:   "generate -f <file|directory>",
 		Short: "Generate Kubernetes resources from abstractions",
@@ -47,9 +47,9 @@ and hydrates them into standard Kubernetes resources.`,
 			if err != nil || len(inputFiles) == 0 {
 				return fmt.Errorf("--file/-f is required")
 			}
-			
+
 			verbose, _ := cmd.Flags().GetBool("verbose")
-			
+
 			generator := NewGenerator(GeneratorOptions{
 				InputFiles: inputFiles,
 				OutputDir:  outputDir,
@@ -57,7 +57,7 @@ and hydrates them into standard Kubernetes resources.`,
 				Validate:   validate,
 				Verbose:    verbose,
 			})
-			
+
 			return generator.Generate(GeneratorOptions{
 				InputFiles: inputFiles,
 				OutputDir:  outputDir,
@@ -67,13 +67,13 @@ and hydrates them into standard Kubernetes resources.`,
 			})
 		},
 	}
-	
+
 	cmd.Flags().StringSliceP("file", "f", []string{}, "input file or directory (required)")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "output directory (default: stdout)")
 	cmd.Flags().StringVar(&overlay, "overlay", "", "kustomize overlay path (directory or kustomization.yaml file)")
 	cmd.Flags().BoolVar(&validate, "validate", true, "validate instances before hydration")
 	cmd.MarkFlagRequired("file")
-	
+
 	return cmd
 }
 
@@ -91,21 +91,21 @@ without generating any resources.`,
 			if err != nil || len(inputFiles) == 0 {
 				return fmt.Errorf("--file/-f is required")
 			}
-			
+
 			verbose, _ := cmd.Flags().GetBool("verbose")
-			
+
 			validator := NewValidator(ValidatorOptions{
 				InputFiles: inputFiles,
 				Verbose:    verbose,
 			})
-			
+
 			return validator.Validate()
 		},
 	}
-	
+
 	cmd.Flags().StringSliceP("file", "f", []string{}, "input file or directory (required)")
 	cmd.MarkFlagRequired("file")
-	
+
 	return cmd
 }
 
@@ -115,7 +115,7 @@ func BuildApplyCommand() *cobra.Command {
 		overlay string
 		dryRun  bool
 	)
-	
+
 	cmd := &cobra.Command{
 		Use:   "apply -f <file|directory>",
 		Short: "Generate and apply resources to cluster",
@@ -127,25 +127,25 @@ This command combines generation and kubectl apply in one step.`,
 			if err != nil || len(inputFiles) == 0 {
 				return fmt.Errorf("--file/-f is required")
 			}
-			
+
 			verbose, _ := cmd.Flags().GetBool("verbose")
-			
+
 			applier := NewApplier(ApplierOptions{
 				InputFiles: inputFiles,
 				Overlay:    overlay,
 				DryRun:     dryRun,
 				Verbose:    verbose,
 			})
-			
+
 			return applier.Apply()
 		},
 	}
-	
+
 	cmd.Flags().StringSliceP("file", "f", []string{}, "input file or directory (required)")
 	cmd.Flags().StringVar(&overlay, "overlay", "", "kustomize overlay path (directory or kustomization.yaml file)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "perform a dry run")
 	cmd.MarkFlagRequired("file")
-	
+
 	return cmd
 }
 
@@ -171,26 +171,26 @@ func (v *Validator) Validate() error {
 		Validate: true,
 		Verbose:  v.opts.Verbose,
 	})
-	
+
 	// Use the generator with validation only
 	for _, inputFile := range v.opts.InputFiles {
 		if v.opts.Verbose {
 			fmt.Printf("Validating: %s\n", inputFile)
 		}
-		
+
 		_, err := validator.processFile(inputFile, GeneratorOptions{
 			Validate: true,
 			Verbose:  v.opts.Verbose,
 		})
-		
+
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "✗ %s: %v\n", inputFile, err)
 			return err
 		}
-		
+
 		fmt.Printf("✓ %s\n", inputFile)
 	}
-	
+
 	fmt.Println("\nAll files validated successfully!")
 	return nil
 }
@@ -220,10 +220,9 @@ func (a *Applier) Apply() error {
 	// 1. Generate resources
 	// 2. Apply overlays
 	// 3. Use kubectl or client-go to apply to cluster
-	
+
 	fmt.Println("Apply functionality coming soon!")
 	fmt.Println("For now, use: generate -f <file> -o output/ | kubectl apply -f -")
-	
+
 	return nil
 }
-

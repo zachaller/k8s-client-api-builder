@@ -65,4 +65,3 @@ func CompareYAMLWithGolden(t *testing.T, got []byte, goldenFile string) {
 	// In the future, could parse YAML and do semantic comparison
 	CompareWithGolden(t, got, goldenFile)
 }
-

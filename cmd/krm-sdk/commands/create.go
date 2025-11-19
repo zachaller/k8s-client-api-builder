@@ -16,4 +16,3 @@ Available subcommands:
 func init() {
 	rootCmd.AddCommand(createCmd)
 }
-

@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	krmtesting "github.com/yourusername/krm-sdk/pkg/testing"
+	krmtesting "github.com/zachaller/k8s-client-api-builder/pkg/testing"
 )
 
 func TestKustomizeOverlay(t *testing.T) {
@@ -43,4 +43,3 @@ func TestOverlayScaffolding(t *testing.T) {
 
 	t.Log("✓ Overlay scaffolding test completed")
 }
-

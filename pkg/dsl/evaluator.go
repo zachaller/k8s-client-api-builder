@@ -71,14 +71,14 @@ func (e *Evaluator) Evaluate(expr *Expression) (interface{}, error) {
 // EvaluateString evaluates a string that may contain variable substitutions
 func (e *Evaluator) EvaluateString(input string) (string, error) {
 	result := input
-	
+
 	// Find all $(...) expressions, handling nested parentheses
 	for {
 		start := strings.Index(result, "$(")
 		if start == -1 {
 			break
 		}
-		
+
 		// Find matching closing parenthesis
 		depth := 0
 		end := -1
@@ -93,30 +93,30 @@ func (e *Evaluator) EvaluateString(input string) (string, error) {
 				}
 			}
 		}
-		
+
 		if end == -1 {
 			return "", fmt.Errorf("unmatched parenthesis in expression")
 		}
-		
+
 		// Extract expression (without $( and ))
 		fullMatch := result[start : end+1]
 		exprStr := result[start+2 : end]
-		
+
 		expr, err := ParseExpression(exprStr)
 		if err != nil {
 			return "", fmt.Errorf("failed to parse expression '%s': %w", exprStr, err)
 		}
-		
+
 		value, err := e.Evaluate(expr)
 		if err != nil {
 			return "", fmt.Errorf("failed to evaluate expression '%s': %w", exprStr, err)
 		}
-		
+
 		// Convert value to string
 		valueStr := fmt.Sprintf("%v", value)
 		result = strings.Replace(result, fullMatch, valueStr, 1)
 	}
-	
+
 	return result, nil
 }
 
@@ -125,27 +125,27 @@ func (e *Evaluator) evaluatePath(path string) (interface{}, error) {
 	if !strings.HasPrefix(path, ".") {
 		return nil, fmt.Errorf("path must start with '.': %s", path)
 	}
-	
+
 	// Remove leading dot
 	path = path[1:]
-	
+
 	// Split path into parts
 	parts := strings.Split(path, ".")
-	
+
 	// Navigate through the data structure
 	current := e.data
 	for _, part := range parts {
 		if part == "" {
 			continue
 		}
-		
+
 		val := reflect.ValueOf(current)
-		
+
 		// Handle pointers
 		if val.Kind() == reflect.Ptr {
 			val = val.Elem()
 		}
-		
+
 		switch val.Kind() {
 		case reflect.Map:
 			// Handle map access
@@ -155,7 +155,7 @@ func (e *Evaluator) evaluatePath(path string) (interface{}, error) {
 				return nil, fmt.Errorf("key '%s' not found in map", part)
 			}
 			current = mapVal.Interface()
-			
+
 		case reflect.Struct:
 			// Handle struct field access
 			field := val.FieldByName(strings.Title(part))
@@ -167,12 +167,12 @@ func (e *Evaluator) evaluatePath(path string) (interface{}, error) {
 				return nil, fmt.Errorf("field '%s' not found in struct", part)
 			}
 			current = field.Interface()
-			
+
 		default:
 			return nil, fmt.Errorf("cannot access '%s' on type %s", part, val.Kind())
 		}
 	}
-	
+
 	return current, nil
 }
 
@@ -182,7 +182,7 @@ func (e *Evaluator) evaluateFunction(name string, args []string) (interface{}, e
 	if !ok {
 		return nil, fmt.Errorf("unknown function: %s", name)
 	}
-	
+
 	// Evaluate arguments
 	evalArgs := make([]interface{}, len(args))
 	for i, arg := range args {
@@ -190,15 +190,15 @@ func (e *Evaluator) evaluateFunction(name string, args []string) (interface{}, e
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse argument: %w", err)
 		}
-		
+
 		val, err := e.Evaluate(expr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate argument: %w", err)
 		}
-		
+
 		evalArgs[i] = val
 	}
-	
+
 	return fn(evalArgs...)
 }
 
@@ -208,12 +208,12 @@ func (e *Evaluator) evaluateBinary(expr *Expression) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	right, err := e.Evaluate(expr.Right)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	switch expr.Operator {
 	// Comparison operators
 	case "==":
@@ -228,7 +228,7 @@ func (e *Evaluator) evaluateBinary(expr *Expression) (interface{}, error) {
 		return compareValues(left, right) >= 0, nil
 	case "<=":
 		return compareValues(left, right) <= 0, nil
-	
+
 	// Arithmetic operators
 	case "+":
 		return performArithmetic(left, right, "+")
@@ -240,7 +240,7 @@ func (e *Evaluator) evaluateBinary(expr *Expression) (interface{}, error) {
 		return performArithmetic(left, right, "/")
 	case "%":
 		return performArithmetic(left, right, "%")
-	
+
 	default:
 		return nil, fmt.Errorf("unknown operator: %s", expr.Operator)
 	}
@@ -253,22 +253,22 @@ func (e *Evaluator) evaluateArrayIndex(expr *Expression) (interface{}, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate array path: %w", err)
 	}
-	
+
 	// Evaluate the index expression
 	indexValue, err := e.Evaluate(expr.Index)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate array index: %w", err)
 	}
-	
+
 	// Convert index to int
 	index, err := toInt(indexValue)
 	if err != nil {
 		return nil, fmt.Errorf("array index must be an integer: %w", err)
 	}
-	
+
 	// Access the array element
 	val := reflect.ValueOf(baseValue)
-	
+
 	// Handle different collection types
 	switch val.Kind() {
 	case reflect.Slice, reflect.Array:
@@ -276,7 +276,7 @@ func (e *Evaluator) evaluateArrayIndex(expr *Expression) (interface{}, error) {
 			return nil, fmt.Errorf("array index %d out of bounds (length %d)", index, val.Len())
 		}
 		return val.Index(index).Interface(), nil
-	
+
 	case reflect.Map:
 		// For maps, try to use the index as a key
 		keyVal := reflect.ValueOf(indexValue)
@@ -285,7 +285,7 @@ func (e *Evaluator) evaluateArrayIndex(expr *Expression) (interface{}, error) {
 			return nil, fmt.Errorf("key %v not found in map", indexValue)
 		}
 		return mapVal.Interface(), nil
-	
+
 	default:
 		return nil, fmt.Errorf("cannot index into type %s", val.Kind())
 	}
@@ -294,17 +294,17 @@ func (e *Evaluator) evaluateArrayIndex(expr *Expression) (interface{}, error) {
 // evaluateConcat evaluates concatenation expressions
 func (e *Evaluator) evaluateConcat(expr *Expression) (interface{}, error) {
 	var result strings.Builder
-	
+
 	for i, elem := range expr.Elements {
 		value, err := e.Evaluate(elem)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate concatenation element %d: %w", i, err)
 		}
-		
+
 		// Convert to string
 		result.WriteString(fmt.Sprintf("%v", value))
 	}
-	
+
 	return result.String(), nil
 }
 
@@ -315,12 +315,12 @@ func (e *Evaluator) evaluateResourceRef(ref *ResourceReference) (interface{}, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate resource name: %w", err)
 	}
-	
+
 	name := fmt.Sprintf("%v", nameValue)
-	
+
 	// Build resource key
 	key := fmt.Sprintf("%s/%s/%s", ref.APIVersion, ref.Kind, name)
-	
+
 	// Look up resource
 	resource, ok := e.resources[key]
 	if !ok {
@@ -331,12 +331,12 @@ func (e *Evaluator) evaluateResourceRef(ref *ResourceReference) (interface{}, er
 		}
 		return nil, fmt.Errorf("resource not found: %s\nAvailable resources: %v", key, available)
 	}
-	
+
 	// If no field path, return the entire resource
 	if ref.FieldPath == "" {
 		return resource, nil
 	}
-	
+
 	// Navigate to the field
 	return e.navigateResourceField(resource, ref.FieldPath)
 }
@@ -345,29 +345,29 @@ func (e *Evaluator) evaluateResourceRef(ref *ResourceReference) (interface{}, er
 func (e *Evaluator) navigateResourceField(resource map[string]interface{}, fieldPath string) (interface{}, error) {
 	// Parse field path (e.g., "spec.clusterIP" or "spec.ports[0].port")
 	parts := strings.Split(fieldPath, ".")
-	
+
 	current := interface{}(resource)
 	for _, part := range parts {
 		if part == "" {
 			continue
 		}
-		
+
 		// Check for array indexing in the part
 		if strings.Contains(part, "[") && strings.Contains(part, "]") {
 			// Parse array access: field[index]
 			openBracket := strings.Index(part, "[")
 			closeBracket := strings.Index(part, "]")
-			
+
 			fieldName := part[:openBracket]
 			indexStr := part[openBracket+1 : closeBracket]
-			
+
 			// Navigate to the field first
 			if fieldName != "" {
 				val := reflect.ValueOf(current)
 				if val.Kind() == reflect.Ptr {
 					val = val.Elem()
 				}
-				
+
 				switch val.Kind() {
 				case reflect.Map:
 					key := reflect.ValueOf(fieldName)
@@ -380,13 +380,13 @@ func (e *Evaluator) navigateResourceField(resource map[string]interface{}, field
 					return nil, fmt.Errorf("cannot access field '%s' on type %s", fieldName, val.Kind())
 				}
 			}
-			
+
 			// Parse index
 			index, err := strconv.Atoi(indexStr)
 			if err != nil {
 				return nil, fmt.Errorf("invalid array index '%s': %w", indexStr, err)
 			}
-			
+
 			// Access array element
 			val := reflect.ValueOf(current)
 			if val.Kind() == reflect.Slice || val.Kind() == reflect.Array {
@@ -403,7 +403,7 @@ func (e *Evaluator) navigateResourceField(resource map[string]interface{}, field
 			if val.Kind() == reflect.Ptr {
 				val = val.Elem()
 			}
-			
+
 			switch val.Kind() {
 			case reflect.Map:
 				key := reflect.ValueOf(part)
@@ -426,7 +426,7 @@ func (e *Evaluator) navigateResourceField(resource map[string]interface{}, field
 			}
 		}
 	}
-	
+
 	return current, nil
 }
 
@@ -436,11 +436,11 @@ func (e *Evaluator) evaluateLiteral(value string) (interface{}, error) {
 	if num, err := strconv.ParseInt(value, 10, 64); err == nil {
 		return num, nil
 	}
-	
+
 	if num, err := strconv.ParseFloat(value, 64); err == nil {
 		return num, nil
 	}
-	
+
 	// Try to parse as boolean
 	if value == "true" {
 		return true, nil
@@ -448,12 +448,12 @@ func (e *Evaluator) evaluateLiteral(value string) (interface{}, error) {
 	if value == "false" {
 		return false, nil
 	}
-	
+
 	// Remove quotes if present
 	if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
 		return value[1 : len(value)-1], nil
 	}
-	
+
 	// Return as string
 	return value, nil
 }
@@ -467,21 +467,21 @@ func (e *Evaluator) registerBuiltinFunctions() {
 		}
 		return strings.ToLower(fmt.Sprintf("%v", args[0])), nil
 	})
-	
+
 	e.RegisterFunction("upper", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("upper() requires 1 argument")
 		}
 		return strings.ToUpper(fmt.Sprintf("%v", args[0])), nil
 	})
-	
+
 	e.RegisterFunction("trim", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 1 {
 			return nil, fmt.Errorf("trim() requires 1 argument")
 		}
 		return strings.TrimSpace(fmt.Sprintf("%v", args[0])), nil
 	})
-	
+
 	e.RegisterFunction("replace", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 3 {
 			return nil, fmt.Errorf("replace() requires 3 arguments")
@@ -491,7 +491,7 @@ func (e *Evaluator) registerBuiltinFunctions() {
 		new := fmt.Sprintf("%v", args[2])
 		return strings.ReplaceAll(str, old, new), nil
 	})
-	
+
 	// Hash functions
 	e.RegisterFunction("sha256", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 1 {
@@ -501,7 +501,7 @@ func (e *Evaluator) registerBuiltinFunctions() {
 		hash := sha256.Sum256([]byte(str))
 		return hex.EncodeToString(hash[:]), nil
 	})
-	
+
 	// Utility functions
 	e.RegisterFunction("default", func(args ...interface{}) (interface{}, error) {
 		if len(args) != 2 {
@@ -519,7 +519,7 @@ func compareValues(a, b interface{}) int {
 	// Try to convert to numbers
 	aNum, aErr := toFloat64(a)
 	bNum, bErr := toFloat64(b)
-	
+
 	if aErr == nil && bErr == nil {
 		if aNum < bNum {
 			return -1
@@ -528,7 +528,7 @@ func compareValues(a, b interface{}) int {
 		}
 		return 0
 	}
-	
+
 	// Fall back to string comparison
 	aStr := fmt.Sprintf("%v", a)
 	bStr := fmt.Sprintf("%v", b)
@@ -583,14 +583,14 @@ func performArithmetic(left, right interface{}, operator string) (interface{}, e
 	if err != nil {
 		return nil, fmt.Errorf("left operand: %w", err)
 	}
-	
+
 	rightNum, err := toFloat64(right)
 	if err != nil {
 		return nil, fmt.Errorf("right operand: %w", err)
 	}
-	
+
 	var result float64
-	
+
 	switch operator {
 	case "+":
 		result = leftNum + rightNum
@@ -612,12 +612,11 @@ func performArithmetic(left, right interface{}, operator string) (interface{}, e
 	default:
 		return nil, fmt.Errorf("unknown arithmetic operator: %s", operator)
 	}
-	
+
 	// If the result is a whole number, return as int64
 	if result == float64(int64(result)) {
 		return int64(result), nil
 	}
-	
+
 	return result, nil
 }
-

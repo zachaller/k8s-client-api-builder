@@ -13,8 +13,8 @@ func TestDetectCircularReferences(t *testing.T) {
 		{
 			name: "no cycles",
 			graph: DependencyGraph{
-				"v1/Service/a":    []string{"v1/ConfigMap/b"},
-				"v1/ConfigMap/b":  []string{},
+				"v1/Service/a":         []string{"v1/ConfigMap/b"},
+				"v1/ConfigMap/b":       []string{},
 				"apps/v1/Deployment/c": []string{"v1/Service/a"},
 			},
 			wantCycle: false,
@@ -180,4 +180,3 @@ func TestExtractResourceRefsFromString(t *testing.T) {
 		})
 	}
 }
-

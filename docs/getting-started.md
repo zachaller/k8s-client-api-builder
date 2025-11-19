@@ -13,7 +13,7 @@ This guide will walk you through creating your first client-side Kubernetes abst
 ### Install the Framework CLI
 
 ```bash
-go install github.com/yourusername/krm-sdk/cmd/krm-sdk@latest
+go install github.com/zachaller/k8s-client-api-builder/cmd/krm-sdk@latest
 ```
 
 Verify the installation:

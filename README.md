@@ -32,7 +32,7 @@ Platform teams often need to provide simplified abstractions for application tea
 ### Install the Framework CLI
 
 ```bash
-go install github.com/yourusername/krm-sdk/cmd/krm-sdk@latest
+go install github.com/zachaller/k8s-client-api-builder/cmd/krm-sdk@latest
 ```
 
 ### Create Your First Project
@@ -261,8 +261,8 @@ Inspired by:
 
 ## 📬 Contact
 
-- Issues: [GitHub Issues](https://github.com/yourusername/krm-sdk/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/krm-sdk/discussions)
+- Issues: [GitHub Issues](https://github.com/zachaller/k8s-client-api-builder/issues)
+- Discussions: [GitHub Discussions](https://github.com/zachaller/k8s-client-api-builder/discussions)
 
 ---
 

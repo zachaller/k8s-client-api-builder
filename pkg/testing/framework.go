@@ -66,7 +66,7 @@ func (f *TestFramework) addLocalReplace() error {
 
 	// Find the krm-sdk directory (where the framework is)
 	sdkDir := filepath.Dir(filepath.Dir(f.SDKBinary)) // bin/krm-sdk -> .
-	
+
 	goModPath := filepath.Join(f.ProjectDir, "go.mod")
 	content, err := os.ReadFile(goModPath)
 	if err != nil {
@@ -76,8 +76,8 @@ func (f *TestFramework) addLocalReplace() error {
 	// Replace the commented replace directive with an active one
 	replaced := string(content)
 	replaced = strings.Replace(replaced,
-		"// replace github.com/yourusername/krm-sdk => /path/to/krm-sdk",
-		fmt.Sprintf("replace github.com/yourusername/krm-sdk => %s", sdkDir),
+		"// replace github.com/zachaller/k8s-client-api-builder => /path/to/k8s-client-api-builder",
+		fmt.Sprintf("replace github.com/zachaller/k8s-client-api-builder => %s", sdkDir),
 		1)
 
 	return os.WriteFile(goModPath, []byte(replaced), 0644)
@@ -292,4 +292,3 @@ func splitLines(s string) []string {
 
 	return lines
 }
-

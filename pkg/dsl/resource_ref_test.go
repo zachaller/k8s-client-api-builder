@@ -103,9 +103,9 @@ func TestEvaluateResourceRef(t *testing.T) {
 			"port": int64(8080),
 		},
 	}
-	
+
 	evaluator := NewEvaluator(instance)
-	
+
 	// Register some resources
 	service := map[string]interface{}{
 		"apiVersion": "v1",
@@ -124,9 +124,9 @@ func TestEvaluateResourceRef(t *testing.T) {
 			},
 		},
 	}
-	
+
 	evaluator.RegisterResource("v1", "Service", "my-app", service)
-	
+
 	tests := []struct {
 		name     string
 		expr     string
@@ -192,9 +192,9 @@ func TestResourceRefInString(t *testing.T) {
 			"name": "my-app",
 		},
 	}
-	
+
 	evaluator := NewEvaluator(instance)
-	
+
 	// Register a service
 	service := map[string]interface{}{
 		"apiVersion": "v1",
@@ -209,9 +209,9 @@ func TestResourceRefInString(t *testing.T) {
 			},
 		},
 	}
-	
+
 	evaluator.RegisterResource("v1", "Service", "my-app", service)
-	
+
 	tests := []struct {
 		name     string
 		input    string
@@ -242,4 +242,3 @@ func TestResourceRefInString(t *testing.T) {
 		})
 	}
 }
-

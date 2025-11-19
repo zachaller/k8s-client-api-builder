@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	krmtesting "github.com/yourusername/krm-sdk/pkg/testing"
+	krmtesting "github.com/zachaller/k8s-client-api-builder/pkg/testing"
 )
 
 func TestBasicHydration(t *testing.T) {
@@ -62,4 +62,3 @@ func TestEndToEndWorkflow(t *testing.T) {
 	// For now, just verify the project was created successfully
 	t.Log("✓ End-to-end workflow completed successfully")
 }
-

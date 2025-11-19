@@ -36,4 +36,3 @@ func TestGoldenFiles(t *testing.T) {
 	//     })
 	// }
 }
-

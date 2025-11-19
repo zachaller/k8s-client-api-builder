@@ -230,4 +230,3 @@ func HasAnnotation(key, value string) ResourceCheck {
 		return nil
 	}
 }
-

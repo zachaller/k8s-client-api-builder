@@ -123,7 +123,6 @@ func (k *KustomizeEngine) resolveOverlayPath(overlayPath string) (string, error)
 	return overlayPath, nil
 }
 
-
 // Build runs kustomize build and returns resources
 func (k *KustomizeEngine) Build(overlayPath string) ([]map[string]interface{}, error) {
 	// Create kustomize options
@@ -187,7 +186,7 @@ func (k *KustomizeEngine) resMapToResources(resMap interface{}) ([]map[string]in
 
 	// Split YAML documents
 	docs := strings.Split(string(yamlBytes), "\n---\n")
-	
+
 	resources := make([]map[string]interface{}, 0, len(docs))
 	for _, doc := range docs {
 		doc = strings.TrimSpace(doc)
@@ -231,4 +230,3 @@ func (k *KustomizeEngine) Cleanup() error {
 	}
 	return nil
 }
-

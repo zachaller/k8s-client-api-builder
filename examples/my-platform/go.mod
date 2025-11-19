@@ -3,7 +3,7 @@ module github.com/example/my-platform
 go 1.25.3
 
 require (
-	github.com/yourusername/krm-sdk v0.1.0
+	github.com/zachaller/k8s-client-api-builder v0.1.0
 	k8s.io/apimachinery v0.34.2
 )
 
@@ -71,5 +71,5 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-// Local development: Using local krm-sdk
-replace github.com/yourusername/krm-sdk => ../..
+// Local development: Using local k8s-client-api-builder
+replace github.com/zachaller/k8s-client-api-builder => ../..

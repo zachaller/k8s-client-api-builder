@@ -48,9 +48,9 @@ func (p *Parser) Parse() ([]Token, error) {
 	varPattern := regexp.MustCompile(`\$\(([^)]+)\)`)
 	ifPattern := regexp.MustCompile(`\$if\(([^)]+)\):`)
 	forPattern := regexp.MustCompile(`\$for\(([^)]+)\):`)
-	
+
 	lines := strings.Split(p.input, "\n")
-	
+
 	for lineNum, line := range lines {
 		// Check for control structures first
 		if ifMatch := ifPattern.FindStringSubmatch(line); ifMatch != nil {
@@ -61,7 +61,7 @@ func (p *Parser) Parse() ([]Token, error) {
 			})
 			continue
 		}
-		
+
 		if forMatch := forPattern.FindStringSubmatch(line); forMatch != nil {
 			p.tokens = append(p.tokens, Token{
 				Type:  TokenFor,
@@ -70,7 +70,7 @@ func (p *Parser) Parse() ([]Token, error) {
 			})
 			continue
 		}
-		
+
 		// Process variable substitutions in the line
 		if varPattern.MatchString(line) {
 			// Line contains variables
@@ -88,7 +88,7 @@ func (p *Parser) Parse() ([]Token, error) {
 			})
 		}
 	}
-	
+
 	return p.tokens, nil
 }
 
@@ -96,7 +96,7 @@ func (p *Parser) Parse() ([]Token, error) {
 type Expression struct {
 	Type        ExprType
 	Path        string
-	Index       *Expression        // For array indexing
+	Index       *Expression // For array indexing
 	Function    string
 	Args        []string
 	Operator    string
@@ -130,7 +130,7 @@ const (
 // ParseExpression parses a DSL expression like ".spec.name" or "lower(.metadata.name)"
 func ParseExpression(expr string) (*Expression, error) {
 	expr = strings.TrimSpace(expr)
-	
+
 	// Check for string concatenation first (but only if it contains a literal string or multiple + operators)
 	// This prevents infinite recursion by only treating it as concat if there are multiple elements
 	if strings.Count(expr, "+") > 0 && (strings.Contains(expr, "\"") || hasMultiplePlusOutsideParens(expr)) {
@@ -138,24 +138,24 @@ func ParseExpression(expr string) (*Expression, error) {
 			return concatExpr, nil
 		}
 	}
-	
+
 	// Check for arithmetic operations
 	for _, op := range []string{"-", "*", "/", "%"} {
 		if containsOperatorOutsideParens(expr, op) {
 			return parseBinaryExpr(expr, op)
 		}
 	}
-	
+
 	// Check for + operator (could be arithmetic if no quotes)
 	if containsOperatorOutsideParens(expr, "+") && !strings.Contains(expr, "\"") {
 		return parseBinaryExpr(expr, "+")
 	}
-	
+
 	// Check if it's a resource reference (has resource() anywhere)
 	if strings.HasPrefix(expr, "resource(") {
 		return parseResourceRef(expr)
 	}
-	
+
 	// Check if it's a function call (but not array indexing or parenthesized expression)
 	if strings.Contains(expr, "(") && strings.HasSuffix(expr, ")") && !strings.Contains(expr, "[") {
 		// Check if it's a parenthesized expression (starts with '(')
@@ -164,22 +164,22 @@ func ParseExpression(expr string) (*Expression, error) {
 			inner := expr[1 : len(expr)-1]
 			return ParseExpression(inner)
 		}
-		
+
 		return parseFunctionExpr(expr)
 	}
-	
+
 	// Check for array indexing
 	if strings.Contains(expr, "[") && strings.Contains(expr, "]") {
 		return parseArrayIndexExpr(expr)
 	}
-	
+
 	// Check if it's a comparison expression (for conditionals)
 	for _, op := range []string{"==", "!=", ">=", "<=", ">", "<"} {
 		if containsOperatorOutsideParens(expr, op) {
 			return parseBinaryExpr(expr, op)
 		}
 	}
-	
+
 	// It's a simple path expression
 	if strings.HasPrefix(expr, ".") {
 		return &Expression{
@@ -187,7 +187,7 @@ func ParseExpression(expr string) (*Expression, error) {
 			Path: expr,
 		}, nil
 	}
-	
+
 	// It's a literal
 	return &Expression{
 		Type: ExprLiteral,
@@ -200,19 +200,19 @@ func hasMultiplePlusOutsideParens(expr string) bool {
 	count := 0
 	depth := 0
 	inQuotes := false
-	
+
 	for i := 0; i < len(expr); i++ {
 		ch := expr[i]
-		
+
 		if ch == '"' {
 			inQuotes = !inQuotes
 			continue
 		}
-		
+
 		if inQuotes {
 			continue
 		}
-		
+
 		if ch == '(' {
 			depth++
 		} else if ch == ')' {
@@ -224,7 +224,7 @@ func hasMultiplePlusOutsideParens(expr string) bool {
 			}
 		}
 	}
-	
+
 	return count > 1
 }
 
@@ -233,16 +233,16 @@ func parseFunctionExpr(expr string) (*Expression, error) {
 	if openParen == -1 {
 		return nil, fmt.Errorf("invalid function expression: %s", expr)
 	}
-	
+
 	funcName := strings.TrimSpace(expr[:openParen])
 	argsStr := strings.TrimSpace(expr[openParen+1 : len(expr)-1])
-	
+
 	var args []string
 	if argsStr != "" {
 		// Simple argument parsing (doesn't handle nested functions yet)
 		args = []string{argsStr}
 	}
-	
+
 	return &Expression{
 		Type:     ExprFunction,
 		Function: funcName,
@@ -256,20 +256,20 @@ func parseBinaryExpr(expr string, operator string) (*Expression, error) {
 	if pos == -1 {
 		return nil, fmt.Errorf("operator %s not found in expression: %s", operator, expr)
 	}
-	
+
 	leftStr := strings.TrimSpace(expr[:pos])
 	rightStr := strings.TrimSpace(expr[pos+len(operator):])
-	
+
 	left, err := ParseExpression(leftStr)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	right, err := ParseExpression(rightStr)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &Expression{
 		Type:     ExprBinary,
 		Operator: operator,
@@ -282,20 +282,20 @@ func parseBinaryExpr(expr string, operator string) (*Expression, error) {
 func parseArrayIndexExpr(expr string) (*Expression, error) {
 	openBracket := strings.Index(expr, "[")
 	closeBracket := strings.LastIndex(expr, "]")
-	
+
 	if openBracket == -1 || closeBracket == -1 || closeBracket < openBracket {
 		return nil, fmt.Errorf("invalid array index expression: %s", expr)
 	}
-	
+
 	basePath := strings.TrimSpace(expr[:openBracket])
 	indexStr := strings.TrimSpace(expr[openBracket+1 : closeBracket])
-	
+
 	// Parse the index expression (could be a number or a path)
 	indexExpr, err := ParseExpression(indexStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse array index: %w", err)
 	}
-	
+
 	return &Expression{
 		Type:  ExprArrayIndex,
 		Path:  basePath,
@@ -307,15 +307,15 @@ func parseArrayIndexExpr(expr string) (*Expression, error) {
 func tryParseConcatExpr(expr string) (*Expression, bool) {
 	// Look for + operator outside of parentheses and quotes
 	// This is for string concatenation like: .spec.prefix + "-" + .spec.suffix
-	
+
 	elements := []*Expression{}
 	current := ""
 	depth := 0
 	inQuotes := false
-	
+
 	for i := 0; i < len(expr); i++ {
 		ch := expr[i]
-		
+
 		switch ch {
 		case '"':
 			inQuotes = !inQuotes
@@ -344,7 +344,7 @@ func tryParseConcatExpr(expr string) (*Expression, bool) {
 			current += string(ch)
 		}
 	}
-	
+
 	// Add the last element
 	if current != "" {
 		elem, err := parseNonConcatExpression(strings.TrimSpace(current))
@@ -353,7 +353,7 @@ func tryParseConcatExpr(expr string) (*Expression, bool) {
 		}
 		elements = append(elements, elem)
 	}
-	
+
 	// If we found multiple elements, it's a concatenation
 	if len(elements) > 1 {
 		return &Expression{
@@ -361,7 +361,7 @@ func tryParseConcatExpr(expr string) (*Expression, bool) {
 			Elements: elements,
 		}, true
 	}
-	
+
 	return nil, false
 }
 
@@ -369,19 +369,19 @@ func tryParseConcatExpr(expr string) (*Expression, bool) {
 // This prevents infinite recursion in concat parsing
 func parseNonConcatExpression(expr string) (*Expression, error) {
 	expr = strings.TrimSpace(expr)
-	
+
 	// Check for arithmetic operations (but not +, that's handled by concat)
 	for _, op := range []string{"-", "*", "/", "%"} {
 		if containsOperatorOutsideParens(expr, op) {
 			return parseBinaryExpr(expr, op)
 		}
 	}
-	
+
 	// Check if it's a resource reference
 	if strings.HasPrefix(expr, "resource(") {
 		return parseResourceRef(expr)
 	}
-	
+
 	// Check if it's a function call (but not a parenthesized expression)
 	if strings.Contains(expr, "(") && strings.HasSuffix(expr, ")") && !strings.Contains(expr, "[") {
 		// Check if it's a parenthesized expression (starts with '(')
@@ -390,22 +390,22 @@ func parseNonConcatExpression(expr string) (*Expression, error) {
 			inner := expr[1 : len(expr)-1]
 			return parseNonConcatExpression(inner)
 		}
-		
+
 		return parseFunctionExpr(expr)
 	}
-	
+
 	// Check for array indexing
 	if strings.Contains(expr, "[") && strings.Contains(expr, "]") {
 		return parseArrayIndexExpr(expr)
 	}
-	
+
 	// Check if it's a comparison expression
 	for _, op := range []string{"==", "!=", ">=", "<=", ">", "<"} {
 		if containsOperatorOutsideParens(expr, op) {
 			return parseBinaryExpr(expr, op)
 		}
 	}
-	
+
 	// It's a simple path expression
 	if strings.HasPrefix(expr, ".") {
 		return &Expression{
@@ -413,7 +413,7 @@ func parseNonConcatExpression(expr string) (*Expression, error) {
 			Path: expr,
 		}, nil
 	}
-	
+
 	// It's a literal
 	return &Expression{
 		Type: ExprLiteral,
@@ -430,19 +430,19 @@ func containsOperatorOutsideParens(expr string, operator string) bool {
 func findOperatorPosition(expr string, operator string) int {
 	depth := 0
 	inQuotes := false
-	
+
 	for i := 0; i < len(expr); i++ {
 		ch := expr[i]
-		
+
 		if ch == '"' {
 			inQuotes = !inQuotes
 			continue
 		}
-		
+
 		if inQuotes {
 			continue
 		}
-		
+
 		if ch == '(' {
 			depth++
 		} else if ch == ')' {
@@ -461,7 +461,7 @@ func findOperatorPosition(expr string, operator string) int {
 			}
 		}
 	}
-	
+
 	return -1
 }
 
@@ -471,14 +471,14 @@ func ParseForLoop(expr string) (varName string, iterPath string, err error) {
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("invalid for loop expression: %s (expected 'var in path')", expr)
 	}
-	
+
 	varName = strings.TrimSpace(parts[0])
 	iterPath = strings.TrimSpace(parts[1])
-	
+
 	if !strings.HasPrefix(iterPath, ".") {
 		return "", "", fmt.Errorf("iteration path must start with '.': %s", iterPath)
 	}
-	
+
 	return varName, iterPath, nil
 }
 
@@ -498,14 +498,14 @@ func parseResourceRef(expr string) (*Expression, error) {
 			}
 		}
 	}
-	
+
 	if closeParen == -1 {
 		return nil, fmt.Errorf("invalid resource reference: missing closing parenthesis")
 	}
-	
+
 	// Extract arguments: resource(args)
 	argsStr := expr[len("resource("):closeParen]
-	
+
 	// Extract field path after the function call
 	fieldPath := ""
 	if closeParen+1 < len(expr) {
@@ -516,23 +516,23 @@ func parseResourceRef(expr string) (*Expression, error) {
 			return nil, fmt.Errorf("invalid resource reference: expected '.' after resource(), got %s", remainder)
 		}
 	}
-	
+
 	// Parse arguments: "apiVersion", "kind", name_expression
 	args, err := parseResourceRefArgs(argsStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse resource reference arguments: %w", err)
 	}
-	
+
 	if len(args) != 3 {
 		return nil, fmt.Errorf("resource() requires 3 arguments (apiVersion, kind, name), got %d", len(args))
 	}
-	
+
 	// Parse the name argument (could be an expression)
 	nameExpr, err := ParseExpression(args[2])
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse resource name: %w", err)
 	}
-	
+
 	return &Expression{
 		Type: ExprResourceRef,
 		ResourceRef: &ResourceReference{
@@ -551,10 +551,10 @@ func parseResourceRefArgs(argsStr string) ([]string, error) {
 	current := ""
 	inQuotes := false
 	depth := 0
-	
+
 	for i := 0; i < len(argsStr); i++ {
 		ch := argsStr[i]
-		
+
 		switch ch {
 		case '"':
 			inQuotes = !inQuotes
@@ -577,12 +577,11 @@ func parseResourceRefArgs(argsStr string) ([]string, error) {
 			current += string(ch)
 		}
 	}
-	
+
 	// Add last argument
 	if current != "" {
 		args = append(args, strings.TrimSpace(current))
 	}
-	
+
 	return args, nil
 }
-

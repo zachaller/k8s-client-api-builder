@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"github.com/yourusername/krm-sdk/pkg/cli"
+	"github.com/zachaller/k8s-client-api-builder/pkg/cli"
 )
 
 // Execute runs the root command
