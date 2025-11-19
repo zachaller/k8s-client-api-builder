@@ -9,6 +9,35 @@ The KRM SDK uses a declarative YAML-based DSL with inline expressions for hydrat
 3. **Type-safe**: Expressions are validated against Go struct schemas
 4. **Composable**: Supports conditionals, loops, and functions
 
+## Feature Summary
+
+The DSL includes the following capabilities:
+
+### Core Features
+- **Variable Substitution**: `$(.path.to.field)` - Access instance fields
+- **Block Conditionals**: `$if(condition):` - Conditionally include YAML blocks
+- **Inline Conditionals**: `$if(condition, trueValue, falseValue)` - Ternary operator
+- **Loops**: `$for(var in .path):` - Iterate over arrays
+- **Nested Loops**: Inner loops can reference outer loop variables
+- **Resource References**: `$(resource(apiVersion, kind, name).field)` - Cross-resource field access
+
+### Operations
+- **Arithmetic**: `+`, `-`, `*`, `/`, `%` with parentheses for grouping
+- **Comparison**: `==`, `!=`, `>`, `<`, `>=`, `<=`
+- **String Concatenation**: `+` operator for combining strings
+- **Array Indexing**: `[0]` for accessing array elements
+
+### Built-in Functions
+- **String Functions**: `lower()`, `upper()`, `trim()`, `replace()`
+- **Hash Functions**: `sha256()`
+- **Utility Functions**: `default()`, `if()`
+- **Nested Functions**: Functions can be composed: `lower(trim(value))`
+
+### Advanced Capabilities
+- **Complex Resource Names**: Use expressions and functions in resource references
+- **Optional Field Handling**: Missing fields in conditionals evaluate to `false`
+- **Multi-dimensional Data**: Nested loops for complex data structures
+
 ## Syntax Overview
 
 ### Variable Substitution
@@ -38,13 +67,16 @@ name: $(.metadata.name)
 # Nested field access
 cpu: $(.spec.resources.cpu)
 
-# Array index (not yet supported)
-# firstItem: $(.spec.items[0])
+# Array indexing
+firstItem: $(.spec.items[0])
+port: $(.spec.ports[0].number)
 ```
 
 ### Conditionals
 
-Use `$if(condition):` to conditionally include content:
+#### Block-Level Conditionals
+
+Use `$if(condition):` to conditionally include entire blocks of YAML:
 
 ```yaml
 spec:
@@ -76,6 +108,40 @@ $if(.spec.type == "production"):
       cpu: "2"
 ```
 
+#### Inline If Statements (Ternary)
+
+Use `$if(condition, trueValue, falseValue)` for inline conditional values:
+
+```yaml
+metadata:
+  annotations:
+    # Set annotation based on condition
+    ingress-enabled: $if(.spec.enableIngress, "true", "false")
+
+spec:
+  # Choose service type based on ingress setting
+  type: $if(.spec.enableIngress, "ClusterIP", "LoadBalancer")
+  
+  # Use default value if field is missing
+  replicas: $if(.spec.replicas, .spec.replicas, 1)
+```
+
+**Inline If Examples:**
+
+```yaml
+# Conditional resource limits
+resources:
+  limits:
+    cpu: $if(.spec.highPerformance, "2000m", "500m")
+    memory: $if(.spec.highPerformance, "4Gi", "1Gi")
+
+# Conditional image tag
+image: $(.spec.image + ":" + if(.spec.useLatest, "latest", .spec.version))
+
+# Nested in strings
+url: $("http://" + if(.spec.enableSSL, "secure", "standard") + ".example.com")
+```
+
 **Supported Operators:**
 - `==` - Equality
 - `!=` - Inequality
@@ -92,6 +158,7 @@ $if(.spec.type == "production"):
 - Number != 0 → true
 - Number == 0 → false
 - nil → false
+- Missing optional fields → false
 
 ### Loops
 
@@ -110,23 +177,51 @@ containers:
 **Loop Syntax:**
 
 ```yaml
-# Basic loop
+# Basic loop over root path
 $for(item in .spec.items):
   - name: $(item.name)
     value: $(item.value)
 
-# Nested loops
+# Nested loops with loop variable references
 $for(service in .spec.services):
   - name: $(service.name)
     ports:
+      # Inner loop references outer loop variable
       $for(port in service.ports):
         - port: $(port)
+
+# Nested loops with complex data
+$for(container in .spec.containers):
+  - name: $(container.name)
+    env:
+      $for(envVar in container.env):
+        - name: $(envVar.name)
+          value: $(envVar.value)
+```
+
+**Loop with Conditionals:**
+
+```yaml
+# Only include env if provided
+$for(app in .spec.apps):
+  - name: $(app.name)
+    $if(app.env):
+      env:
+        $for(envVar in app.env):
+          - name: $(envVar.name)
+            value: $(envVar.value)
 ```
 
 **Loop Variable Scope:**
 - Loop variables are only available within the loop body
 - Outer instance fields are still accessible: `$(.metadata.name)`
+- Inner loops can reference outer loop variables: `$(container.ports)`
 - Loop variables shadow outer variables with the same name
+
+**Iteration Paths:**
+- Root paths start with `.` and reference the instance: `.spec.items`
+- Loop variable paths reference fields from outer loop variables: `container.ports`
+- Both types can be used in the same template
 
 ### Functions
 
@@ -137,6 +232,28 @@ labels:
   app: $(lower(.metadata.name))
   version: $(trim(.spec.version))
   hash: $(sha256(.spec.image))
+```
+
+**Nested Functions:**
+
+Functions can be nested to combine transformations:
+
+```yaml
+labels:
+  # Trim then convert to lowercase
+  name: $(lower(trim(.spec.name)))
+  
+  # Replace then convert to uppercase
+  env: $(upper(replace(.spec.environment, "-", "_")))
+  
+  # Triple nesting
+  url: $(upper(trim(replace(.spec.domain, "http://", ""))))
+
+# Use in conditionals
+type: $if(.spec.production, upper(.spec.type), lower(.spec.type))
+
+# Use with default values
+replicas: $(default(lower(.spec.size), "small"))
 ```
 
 ### Resource References
@@ -152,6 +269,27 @@ servicePort: $(resource("v1", "Service", "my-app").spec.ports[0].port)
 
 # Reference with expression for name
 secretName: $(resource("v1", "Secret", .metadata.name + "-secret").metadata.name)
+```
+
+**Complex Name Expressions:**
+
+Resource names can use functions and complex expressions:
+
+```yaml
+# Name with concatenation
+configValue: $(resource("v1", "ConfigMap", .metadata.name + "-config").data.key)
+
+# Name with lowercase transformation
+serviceIP: $(resource("v1", "Service", lower(.metadata.name)).spec.clusterIP)
+
+# Name with trim and concatenation
+secret: $(resource("v1", "Secret", trim(.spec.namespace) + "-secret").data.token)
+
+# Name with conditional expression
+endpoint: $(resource("v1", "Service", if(.spec.ha, .metadata.name + "-ha", .metadata.name)).spec.clusterIP)
+
+# Combining multiple functions
+data: $(resource("v1", "ConfigMap", upper(trim(.spec.name))).data.value)
 ```
 
 ## Resource References
@@ -391,6 +529,29 @@ replicas: $(default(.spec.replicas, 1))
 # If .spec.replicas is empty → Output: 1
 ```
 
+#### `if(condition, trueValue, falseValue)`
+Returns trueValue if condition is true, otherwise returns falseValue. This is the inline/ternary form of conditionals.
+
+```yaml
+# Simple conditional value
+serviceType: $if(.spec.enableIngress, "ClusterIP", "LoadBalancer")
+
+# With function calls
+cpu: $if(.spec.production, upper("high"), lower("LOW"))
+
+# Nested in expressions
+image: $(.spec.name + ":" + if(.spec.useLatest, "latest", .spec.version))
+
+# Can also be used inside $() blocks
+annotation: $(if(.spec.enabled, "true", "false"))
+```
+
+**Note:** The `if()` function can be used with or without the `$()` wrapper:
+- `$if(condition, trueValue, falseValue)` - Direct syntax
+- `$(if(condition, trueValue, falseValue))` - Function call syntax
+
+Both forms are equivalent and produce the same result.
+
 ## Complete Examples
 
 ### Example 1: Simple Deployment
@@ -555,12 +716,67 @@ resources:
 
 ## Advanced Patterns
 
-### Combining Functions
+### Nested Functions
+
+Functions can be deeply nested to create complex transformations:
 
 ```yaml
 labels:
-  app: $(lower(.metadata.name))
-  hash: $(sha256(lower(.spec.image)))
+  # Double nesting
+  app: $(lower(trim(.metadata.name)))
+  
+  # Triple nesting
+  domain: $(upper(trim(replace(.spec.url, "http://", ""))))
+  
+  # With hash
+  configHash: $(sha256(lower(.spec.image)))
+
+# In conditionals
+serviceType: $if(.spec.production, upper(trim(.spec.type)), lower(.spec.type))
+
+# In resource references
+data: $(resource("v1", "ConfigMap", lower(trim(.spec.name))).data.key)
+```
+
+### Nested Loops
+
+Loops can be nested to process multi-dimensional data:
+
+```yaml
+# Containers with ports
+$for(container in .spec.containers):
+  - name: $(container.name)
+    ports:
+      $for(port in container.ports):
+        - containerPort: $(port)
+    env:
+      $for(envVar in container.env):
+        - name: $(envVar.name)
+          value: $(envVar.value)
+
+# Services with endpoints
+$for(service in .spec.services):
+  - name: $(service.name)
+    endpoints:
+      $for(endpoint in service.endpoints):
+        - address: $(endpoint.ip)
+          port: $(endpoint.port)
+```
+
+### Loops with Conditionals
+
+Combine loops and conditionals for flexible resource generation:
+
+```yaml
+# Optional nested data
+$for(app in .spec.apps):
+  - name: $(app.name)
+    # Only include env if app has environment variables
+    $if(app.env):
+      env:
+        $for(envVar in app.env):
+          - name: $(envVar.name)
+            value: $(envVar.value)
 ```
 
 ### Nested Conditionals
@@ -583,13 +799,34 @@ $if(.spec.replicas > 1):
       maxUnavailable: 0
 ```
 
+### Inline Conditionals in Complex Expressions
+
+```yaml
+# Multiple inline conditionals
+annotations:
+  ingress: $if(.spec.enableIngress, "true", "false")
+  monitoring: $if(.spec.enableMonitoring, "enabled", "disabled")
+  env: $if(.spec.production, "prod", "dev")
+
+# Inline conditionals with concatenation
+image: $(.spec.registry + "/" + .spec.name + ":" + if(.spec.useLatest, "latest", .spec.version))
+
+# Nested inline conditionals
+cpu: $if(.spec.production, if(.spec.highPerformance, "4000m", "2000m"), "500m")
+```
+
 ## Best Practices
 
-1. **Keep templates readable**: Don't nest too deeply
+1. **Keep templates readable**: Don't nest too deeply - limit nesting to 3-4 levels
 2. **Use meaningful variable names**: `$for(container in .spec.containers)` not `$for(c in .spec.containers)`
-3. **Validate early**: Use kubebuilder markers to enforce constraints
-4. **Document complex logic**: Add comments in templates
-5. **Test thoroughly**: Create sample instances for all code paths
+3. **Prefer inline conditionals for simple values**: Use `$if(condition, true, false)` for single values, block conditionals for complex structures
+4. **Validate early**: Use kubebuilder markers to enforce constraints on your API types
+5. **Document complex logic**: Add YAML comments to explain complex nested functions or conditionals
+6. **Test thoroughly**: Create sample instances for all code paths, especially optional fields and conditionals
+7. **Avoid excessive nesting**: If you have more than 3 levels of nested functions, consider simplifying
+8. **Use resource references wisely**: Resource references add a second pass, so use them only when necessary
+9. **Handle optional fields**: Remember that missing fields in conditionals evaluate to `false`, not an error
+10. **Test nested loops**: Multi-dimensional data structures can be complex - test with various data shapes
 
 ## Advanced Features
 
@@ -707,7 +944,9 @@ Current limitations (may be addressed in future versions):
 
 1. **No operator precedence**: Arithmetic operations are evaluated left-to-right without standard precedence rules. Use parentheses to control order: `$((.spec.a + .spec.b) * .spec.c)` instead of `$(.spec.a + .spec.b * .spec.c)`
 2. **No custom functions in templates**: Functions must be registered in Go code
-3. **No nested array slicing**: Can't do `.spec.items[0:5]`
+3. **No array slicing**: Can't do `.spec.items[0:5]` (only single index access is supported)
+4. **No external resource references**: Can only reference resources defined in the same template, not existing cluster resources
+5. **No circular references**: Resources cannot reference each other in a loop
 
 ## Error Messages
 
@@ -723,10 +962,12 @@ Common errors and their meanings:
 
 Planned features for future versions:
 
-- Array indexing and slicing
-- Arithmetic expressions
-- String concatenation operator
-- Custom function registration in templates
-- Template includes/imports
-- Macro definitions
+- **Array slicing**: Support for range syntax like `.spec.items[0:5]`
+- **Operator precedence**: Standard mathematical operator precedence for arithmetic
+- **Custom function registration in templates**: Define functions directly in YAML
+- **Template includes/imports**: Import and reuse template fragments
+- **Macro definitions**: Define reusable template macros
+- **External resource references**: Reference existing cluster resources
+- **Advanced loop controls**: `break`, `continue`, and loop indices
+- **Pattern matching**: More sophisticated conditional logic
 
