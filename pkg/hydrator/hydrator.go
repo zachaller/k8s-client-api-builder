@@ -321,15 +321,15 @@ func (h *Hydrator) expandResourceTemplates(resourcesField interface{}, evaluator
 // expandResourceLoop expands a $for loop at the resources level
 // This function returns raw templates that still need to be processed by processResourcePass1
 func (h *Hydrator) expandResourceLoop(key string, value interface{}, evaluator *dsl.Evaluator, context map[string]interface{}, isPass1 bool) ([]map[string]interface{}, error) {
-	// Extract loop expression from key: $for(item in .path):
+	// Extract loop expression from key: $for(item in .path): or $for(item in .path where condition):
 	if !strings.HasPrefix(key, "$for(") || !strings.HasSuffix(key, "):") {
 		return nil, fmt.Errorf("invalid loop syntax: %s", key)
 	}
 
 	loopExpr := key[5 : len(key)-2]
 
-	// Parse loop expression
-	varName, iterPath, err := dsl.ParseForLoop(loopExpr)
+	// Parse loop expression with optional filter
+	varName, iterPath, filterExpr, err := dsl.ParseForLoopWithFilter(loopExpr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse loop expression: %w", err)
 	}
@@ -362,6 +362,42 @@ func (h *Hydrator) expandResourceLoop(key string, value interface{}, evaluator *
 			loopContext[k] = v
 		}
 		loopContext[varName] = item
+
+		// If there's a filter expression, evaluate it
+		if filterExpr != "" {
+			// Create evaluator with loop context
+			filterEvaluator := dsl.NewEvaluator(loopContext)
+
+			// Parse and evaluate the filter expression
+			filterParsed, err := dsl.ParseExpression(filterExpr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse filter expression '%s': %w", filterExpr, err)
+			}
+
+			result, err := filterEvaluator.Evaluate(filterParsed)
+			if err != nil {
+				// If evaluation fails (e.g., field doesn't exist), skip this item
+				continue
+			}
+
+			// Check if condition is true
+			include := false
+			switch v := result.(type) {
+			case bool:
+				include = v
+			case string:
+				include = v != "" && v != "false"
+			case int, int32, int64:
+				include = v != 0
+			default:
+				include = result != nil
+			}
+
+			// Skip item if filter evaluates to false
+			if !include {
+				continue
+			}
+		}
 
 		// Create new evaluator with loop context
 		loopEvaluator := dsl.NewEvaluator(loopContext)
@@ -737,15 +773,15 @@ func (h *Hydrator) processConditional(key string, value interface{}, evaluator *
 
 // processLoop handles $for(...): constructs
 func (h *Hydrator) processLoop(key string, value interface{}, evaluator *dsl.Evaluator, context map[string]interface{}) ([]interface{}, error) {
-	// Extract loop expression from key: $for(item in .path):
+	// Extract loop expression from key: $for(item in .path): or $for(item in .path where condition):
 	if !strings.HasPrefix(key, "$for(") || !strings.HasSuffix(key, "):") {
 		return nil, fmt.Errorf("invalid loop syntax: %s", key)
 	}
 
 	loopExpr := key[5 : len(key)-2]
 
-	// Parse loop expression
-	varName, iterPath, err := dsl.ParseForLoop(loopExpr)
+	// Parse loop expression with optional filter
+	varName, iterPath, filterExpr, err := dsl.ParseForLoopWithFilter(loopExpr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse loop expression: %w", err)
 	}
@@ -776,6 +812,42 @@ func (h *Hydrator) processLoop(key string, value interface{}, evaluator *dsl.Eva
 			loopContext[k] = v
 		}
 		loopContext[varName] = item
+
+		// If there's a filter expression, evaluate it
+		if filterExpr != "" {
+			// Create evaluator with loop context
+			filterEvaluator := dsl.NewEvaluator(loopContext)
+
+			// Parse and evaluate the filter expression
+			filterParsed, err := dsl.ParseExpression(filterExpr)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse filter expression '%s': %w", filterExpr, err)
+			}
+
+			result, err := filterEvaluator.Evaluate(filterParsed)
+			if err != nil {
+				// If evaluation fails (e.g., field doesn't exist), skip this item
+				continue
+			}
+
+			// Check if condition is true
+			include := false
+			switch v := result.(type) {
+			case bool:
+				include = v
+			case string:
+				include = v != "" && v != "false"
+			case int, int32, int64:
+				include = v != 0
+			default:
+				include = result != nil
+			}
+
+			// Skip item if filter evaluates to false
+			if !include {
+				continue
+			}
+		}
 
 		// Create new evaluator with loop context
 		loopEvaluator := dsl.NewEvaluator(loopContext)

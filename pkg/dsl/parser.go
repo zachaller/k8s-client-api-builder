@@ -568,6 +568,26 @@ func ParseForLoop(expr string) (varName string, iterPath string, err error) {
 	return varName, iterPath, nil
 }
 
+// ParseForLoopWithFilter parses a for loop expression with optional where clause
+// Supports: "item in .path" or "item in .path where item.field != value"
+func ParseForLoopWithFilter(expr string) (varName string, iterPath string, filterExpr string, err error) {
+	// Check for "where" clause
+	whereIndex := strings.Index(expr, " where ")
+	if whereIndex > 0 {
+		// Split into loop part and filter part
+		loopPart := strings.TrimSpace(expr[:whereIndex])
+		filterExpr = strings.TrimSpace(expr[whereIndex+7:]) // +7 for " where "
+
+		// Parse the loop part
+		varName, iterPath, err = ParseForLoop(loopPart)
+		return varName, iterPath, filterExpr, err
+	}
+
+	// No where clause, use regular parsing
+	varName, iterPath, err = ParseForLoop(expr)
+	return varName, iterPath, "", err
+}
+
 // parseResourceRef parses a resource reference like resource("v1", "Service", "my-app").spec.clusterIP
 func parseResourceRef(expr string) (*Expression, error) {
 	// Find the closing parenthesis of resource()
