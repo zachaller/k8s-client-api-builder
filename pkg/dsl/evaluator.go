@@ -225,12 +225,25 @@ func (e *Evaluator) evaluateFunction(name string, args []string) (interface{}, e
 func (e *Evaluator) evaluateBinary(expr *Expression) (interface{}, error) {
 	left, err := e.Evaluate(expr.Left)
 	if err != nil {
-		return nil, err
+		// For comparison operators, treat evaluation errors (e.g., missing fields) as nil
+		// This allows expressions like "ws.disabled != true" to work when disabled doesn't exist
+		switch expr.Operator {
+		case "==", "!=", ">", "<", ">=", "<=":
+			left = nil
+		default:
+			return nil, err
+		}
 	}
 
 	right, err := e.Evaluate(expr.Right)
 	if err != nil {
-		return nil, err
+		// Same treatment for right side
+		switch expr.Operator {
+		case "==", "!=", ">", "<", ">=", "<=":
+			right = nil
+		default:
+			return nil, err
+		}
 	}
 
 	switch expr.Operator {
