@@ -541,10 +541,10 @@ func (e *Evaluator) evaluateLiteral(value string) (interface{}, error) {
 	}
 
 	// Remove quotes if present (support both double and single quotes)
-	if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+	if len(value) >= 2 && strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
 		return value[1 : len(value)-1], nil
 	}
-	if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+	if len(value) >= 2 && strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
 		return value[1 : len(value)-1], nil
 	}
 

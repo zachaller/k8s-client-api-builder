@@ -76,7 +76,7 @@ func TestEvaluateSimpleTemplate(t *testing.T) {
 			"apiVersion": "v1",
 			"kind":       "Service",
 			"metadata": map[string]interface{}{
-				"name": "@expr(.metadata.name + '-svc')",
+				"name": "@expr(.metadata.name + \"-svc\")",
 			},
 		},
 	}
@@ -310,4 +310,3 @@ func TestPrinter(t *testing.T) {
 		t.Error("Print() output missing 'ForLoop'")
 	}
 }
-
