@@ -148,3 +148,18 @@ func (n *MapNode) Accept(visitor Visitor) (interface{}, error) {
 func (n *MapNode) Position() Position {
 	return n.Pos
 }
+
+// MultiControlFlowNode represents multiple control flow nodes at the same level
+// This is used when a map contains only @for and/or @if keys
+type MultiControlFlowNode struct {
+	Nodes []Node // The control flow nodes to execute
+	Pos   Position
+}
+
+func (n *MultiControlFlowNode) Accept(visitor Visitor) (interface{}, error) {
+	return visitor.VisitMultiControlFlow(n)
+}
+
+func (n *MultiControlFlowNode) Position() Position {
+	return n.Pos
+}

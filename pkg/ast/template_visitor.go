@@ -11,6 +11,7 @@ type Visitor interface {
 	VisitLiteral(node *LiteralNode) (interface{}, error)
 	VisitArray(node *ArrayNode) (interface{}, error)
 	VisitMap(node *MapNode) (interface{}, error)
+	VisitMultiControlFlow(node *MultiControlFlowNode) (interface{}, error)
 }
 
 // Walk traverses an AST node and all its children

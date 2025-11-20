@@ -653,6 +653,131 @@ func (e *Evaluator) registerBuiltinFunctions() {
 		}
 		return args[2], nil
 	})
+
+	// Array manipulation functions
+	e.RegisterFunction("prepend", func(args ...interface{}) (interface{}, error) {
+		if len(args) < 2 {
+			return nil, fmt.Errorf("prepend() requires at least 2 arguments: item(s) to prepend, array")
+		}
+
+		// Last argument is the array
+		arrayArg := args[len(args)-1]
+		itemsToPrepend := args[:len(args)-1]
+
+		// Convert array argument to slice
+		var arr []interface{}
+		switch v := arrayArg.(type) {
+		case []interface{}:
+			arr = v
+		case []string:
+			arr = make([]interface{}, len(v))
+			for i, s := range v {
+				arr[i] = s
+			}
+		case []int:
+			arr = make([]interface{}, len(v))
+			for i, n := range v {
+				arr[i] = n
+			}
+		default:
+			return nil, fmt.Errorf("prepend() last argument must be an array, got %T", arrayArg)
+		}
+
+		// Create new array with prepended items
+		result := make([]interface{}, 0, len(itemsToPrepend)+len(arr))
+		result = append(result, itemsToPrepend...)
+		result = append(result, arr...)
+
+		return result, nil
+	})
+
+	e.RegisterFunction("append", func(args ...interface{}) (interface{}, error) {
+		if len(args) < 2 {
+			return nil, fmt.Errorf("append() requires at least 2 arguments: array, item(s) to append")
+		}
+
+		// First argument is the array
+		arrayArg := args[0]
+		itemsToAppend := args[1:]
+
+		// Convert array argument to slice
+		var arr []interface{}
+		switch v := arrayArg.(type) {
+		case []interface{}:
+			arr = v
+		case []string:
+			arr = make([]interface{}, len(v))
+			for i, s := range v {
+				arr[i] = s
+			}
+		case []int:
+			arr = make([]interface{}, len(v))
+			for i, n := range v {
+				arr[i] = n
+			}
+		default:
+			return nil, fmt.Errorf("append() first argument must be an array, got %T", arrayArg)
+		}
+
+		// Create new array with appended items
+		result := make([]interface{}, 0, len(arr)+len(itemsToAppend))
+		result = append(result, arr...)
+		result = append(result, itemsToAppend...)
+
+		return result, nil
+	})
+
+	e.RegisterFunction("concat", func(args ...interface{}) (interface{}, error) {
+		if len(args) < 2 {
+			return nil, fmt.Errorf("concat() requires at least 2 arrays")
+		}
+
+		result := make([]interface{}, 0)
+
+		for i, arg := range args {
+			switch v := arg.(type) {
+			case []interface{}:
+				result = append(result, v...)
+			case []string:
+				for _, s := range v {
+					result = append(result, s)
+				}
+			case []int:
+				for _, n := range v {
+					result = append(result, n)
+				}
+			default:
+				return nil, fmt.Errorf("concat() argument %d must be an array, got %T", i, arg)
+			}
+		}
+
+		return result, nil
+	})
+
+	// Existence checking functions
+	e.RegisterFunction("has", func(args ...interface{}) (interface{}, error) {
+		if len(args) != 1 {
+			return nil, fmt.Errorf("has() requires 1 argument: path expression")
+		}
+
+		// The argument should be a string representing a path
+		// But since we're in the evaluator, we need to check if the path exists
+		// This is tricky because we need to parse the path and check each level
+
+		// For now, we'll just check if the value is nil or not
+		// A better implementation would parse the path string
+		return args[0] != nil, nil
+	})
+
+	e.RegisterFunction("exists", func(args ...interface{}) (interface{}, error) {
+		if len(args) != 1 {
+			return nil, fmt.Errorf("exists() requires 1 argument: path expression")
+		}
+
+		// Same as has() - check if value is not nil
+		return args[0] != nil, nil
+	})
+
 }
 
 // compareValues compares two values numerically

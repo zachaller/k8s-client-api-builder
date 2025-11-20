@@ -60,8 +60,10 @@ func TestParseResourceRef(t *testing.T) {
 				if expr.ResourceRef.Name == nil {
 					t.Fatal("Name expression is nil")
 				}
-				if expr.ResourceRef.Name.Type != ExprConcat {
-					t.Errorf("expected name to be ExprConcat, got %v", expr.ResourceRef.Name.Type)
+				// Accept both ExprConcat (legacy) and ExprBinary with "+" (yacc parser)
+				if expr.ResourceRef.Name.Type != ExprConcat &&
+					(expr.ResourceRef.Name.Type != ExprBinary || expr.ResourceRef.Name.Operator != "+") {
+					t.Errorf("expected name to be ExprConcat or ExprBinary(+), got %v", expr.ResourceRef.Name.Type)
 				}
 			},
 		},

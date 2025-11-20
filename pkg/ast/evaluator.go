@@ -2,6 +2,7 @@ package ast
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/zachaller/k8s-client-api-builder/pkg/dsl"
 )
@@ -137,24 +138,28 @@ func (e *Evaluator) VisitForLoop(node *ForLoopNode) (interface{}, error) {
 // VisitConditional visits a conditional node
 func (e *Evaluator) VisitConditional(node *ConditionalNode) (interface{}, error) {
 	// Evaluate the condition
+	// If evaluation fails (e.g., key not found), treat as false
 	condResult, err := e.evaluateExpression(node.Condition)
-	if err != nil {
-		return nil, fmt.Errorf("failed to evaluate condition: %w", err)
-	}
-
-	// Check if condition is true
 	conditionTrue := false
-	switch v := condResult.(type) {
-	case bool:
-		conditionTrue = v
-	case string:
-		conditionTrue = v != "" && v != "false" && v != "0"
-	case int, int32, int64:
-		conditionTrue = v != 0
-	case float32, float64:
-		conditionTrue = v != 0.0
-	default:
-		conditionTrue = v != nil
+
+	if err != nil {
+		// If the condition evaluation fails (e.g., missing key), treat as false
+		// This allows for optional field checking like @if(component.args)
+		conditionTrue = false
+	} else {
+		// Check if condition is true
+		switch v := condResult.(type) {
+		case bool:
+			conditionTrue = v
+		case string:
+			conditionTrue = v != "" && v != "false" && v != "0"
+		case int, int32, int64:
+			conditionTrue = v != 0
+		case float32, float64:
+			conditionTrue = v != 0.0
+		default:
+			conditionTrue = v != nil
+		}
 	}
 
 	// Execute the appropriate branch
@@ -260,6 +265,31 @@ func (e *Evaluator) VisitMap(node *MapNode) (interface{}, error) {
 	_, hasKind := node.Fields["kind"]
 	isResource := hasAPIVersion && hasKind
 
+	// Check if this map contains ONLY control flow keys (special case for arrays)
+	// If so, we should return the control flow results directly, not as a map
+	hasOnlyControlFlow := len(node.Fields) > 0
+	for key := range node.Fields {
+		if !strings.HasPrefix(key, "@for(") && !strings.HasPrefix(key, "@if(") {
+			hasOnlyControlFlow = false
+			break
+		}
+	}
+
+	// If this map has only control flow and is likely in an array context,
+	// execute the control flow and return its results directly
+	if hasOnlyControlFlow && len(node.Fields) == 1 {
+		for _, valueNode := range node.Fields {
+			switch vNode := valueNode.(type) {
+			case *ForLoopNode:
+				// Return loop results directly (for array expansion)
+				return vNode.Accept(e)
+			case *ConditionalNode:
+				// Return conditional results directly
+				return vNode.Accept(e)
+			}
+		}
+	}
+
 	// If this is a resource, increment depth before processing children
 	if isResource {
 		e.resourceDepth++
@@ -320,6 +350,21 @@ func (e *Evaluator) VisitMap(node *MapNode) (interface{}, error) {
 	}
 
 	return result, nil
+}
+
+// VisitMultiControlFlow visits a multi-control-flow node (multiple @for/@if at same level)
+func (e *Evaluator) VisitMultiControlFlow(node *MultiControlFlowNode) (interface{}, error) {
+	// Execute all control flow nodes and collect their results
+	// Resources will be collected in e.resources by the individual visitors
+	for _, controlNode := range node.Nodes {
+		_, err := controlNode.Accept(e)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Return nil since resources are collected in e.resources
+	return nil, nil
 }
 
 // evaluateExpression evaluates a DSL expression in the current context

@@ -73,16 +73,59 @@ func (p *Parser) parseNode(data interface{}) (Node, error) {
 		return &LiteralNode{Value: v, Pos: p.currentPos()}, nil
 
 	case map[string]interface{}:
-		// Check for control flow keys
+		// Count control flow keys and regular keys
+		controlFlowCount := 0
+		regularKeyCount := 0
+		var singleControlKey string
+		var singleControlValue interface{}
+
 		for key, value := range v {
-			if strings.HasPrefix(key, "@for(") {
-				return p.parseForLoop(key, value)
-			}
-			if strings.HasPrefix(key, "@if(") {
-				return p.parseConditional(key, value)
+			if strings.HasPrefix(key, "@for(") || strings.HasPrefix(key, "@if(") {
+				controlFlowCount++
+				singleControlKey = key
+				singleControlValue = value
+			} else {
+				regularKeyCount++
 			}
 		}
-		// Regular map node
+
+		// If we have MULTIPLE control flow keys AND no regular keys, treat as a special container
+		if controlFlowCount > 1 && regularKeyCount == 0 {
+			// Parse all control flow nodes and return a container
+			nodes := []Node{}
+			for key, value := range v {
+				if strings.HasPrefix(key, "@for(") {
+					node, err := p.parseForLoop(key, value)
+					if err != nil {
+						return nil, err
+					}
+					nodes = append(nodes, node)
+				} else if strings.HasPrefix(key, "@if(") {
+					node, err := p.parseConditional(key, value)
+					if err != nil {
+						return nil, err
+					}
+					nodes = append(nodes, node)
+				}
+			}
+			// Return a special container node that will execute all control flows
+			return &MultiControlFlowNode{
+				Nodes: nodes,
+				Pos:   p.currentPos(),
+			}, nil
+		}
+
+		// Single control flow key AND no regular keys (backward compatibility)
+		if controlFlowCount == 1 && regularKeyCount == 0 {
+			if strings.HasPrefix(singleControlKey, "@for(") {
+				return p.parseForLoop(singleControlKey, singleControlValue)
+			}
+			if strings.HasPrefix(singleControlKey, "@if(") {
+				return p.parseConditional(singleControlKey, singleControlValue)
+			}
+		}
+
+		// Regular map node (includes maps with control flow keys mixed with regular keys)
 		return p.parseMapNode(v)
 
 	case []interface{}:
@@ -322,4 +365,3 @@ func (p *Parser) currentPos() Position {
 		File:   p.currentFile,
 	}
 }
-

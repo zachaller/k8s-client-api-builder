@@ -19,6 +19,9 @@ go.work
 # Dependency directories
 vendor/
 
+# Generated parser (committed for convenience, regenerate with `make generate-parser`)
+# pkg/dsl/parser_generated.go
+
 # IDE
 .idea/
 .vscode/

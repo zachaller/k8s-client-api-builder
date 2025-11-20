@@ -152,3 +152,18 @@ func (p *Printer) VisitMap(node *MapNode) (interface{}, error) {
 	p.indent--
 	return nil, nil
 }
+
+func (p *Printer) VisitMultiControlFlow(node *MultiControlFlowNode) (interface{}, error) {
+	p.writeIndent()
+	p.output.WriteString("MultiControlFlowNode:\n")
+	p.indent++
+	for i, controlNode := range node.Nodes {
+		p.writeIndent()
+		p.output.WriteString(fmt.Sprintf("Control[%d]:\n", i))
+		p.indent++
+		controlNode.Accept(p)
+		p.indent--
+	}
+	p.indent--
+	return nil, nil
+}
