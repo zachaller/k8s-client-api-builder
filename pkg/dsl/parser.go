@@ -104,6 +104,49 @@ type Expression struct {
 	Right       *Expression
 	Elements    []*Expression      // For concatenation
 	ResourceRef *ResourceReference // For resource references
+	Operand     *Expression        // For unary operations
+}
+
+// ExpressionVisitor defines the visitor interface for expressions
+type ExpressionVisitor interface {
+	VisitPath(expr *Expression) (interface{}, error)
+	VisitFunction(expr *Expression) (interface{}, error)
+	VisitBinary(expr *Expression) (interface{}, error)
+	VisitLiteral(expr *Expression) (interface{}, error)
+	VisitArrayIndex(expr *Expression) (interface{}, error)
+	VisitConcat(expr *Expression) (interface{}, error)
+	VisitResourceRef(expr *Expression) (interface{}, error)
+	VisitUnary(expr *Expression) (interface{}, error)
+}
+
+// Accept allows a visitor to visit this expression
+func (e *Expression) Accept(visitor ExpressionVisitor) (interface{}, error) {
+	switch e.Type {
+	case ExprPath:
+		return visitor.VisitPath(e)
+	case ExprFunction:
+		return visitor.VisitFunction(e)
+	case ExprBinary:
+		return visitor.VisitBinary(e)
+	case ExprLiteral:
+		return visitor.VisitLiteral(e)
+	case ExprArrayIndex:
+		return visitor.VisitArrayIndex(e)
+	case ExprConcat:
+		return visitor.VisitConcat(e)
+	case ExprResourceRef:
+		return visitor.VisitResourceRef(e)
+	case ExprUnary:
+		return visitor.VisitUnary(e)
+	default:
+		return nil, fmt.Errorf("unknown expression type: %d", e.Type)
+	}
+}
+
+// Walk traverses an expression tree with a visitor
+func Walk(expr *Expression, visitor ExpressionVisitor) error {
+	_, err := expr.Accept(visitor)
+	return err
 }
 
 // ResourceReference represents a reference to another resource
@@ -125,15 +168,38 @@ const (
 	ExprArrayIndex
 	ExprConcat
 	ExprResourceRef
+	ExprUnary
 )
 
 // ParseExpression parses a DSL expression like ".spec.name" or "lower(.metadata.name)"
 func ParseExpression(expr string) (*Expression, error) {
 	expr = strings.TrimSpace(expr)
 
+	// Check for quoted string literals first (single or double quotes)
+	if (strings.HasPrefix(expr, "\"") && strings.HasSuffix(expr, "\"")) ||
+		(strings.HasPrefix(expr, "'") && strings.HasSuffix(expr, "'")) {
+		return &Expression{
+			Type: ExprLiteral,
+			Path: expr,
+		}, nil
+	}
+
+	// Check for unary operators (!, -)
+	if strings.HasPrefix(expr, "!") {
+		operand, err := ParseExpression(expr[1:])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse unary operand: %w", err)
+		}
+		return &Expression{
+			Type:     ExprUnary,
+			Operator: "!",
+			Operand:  operand,
+		}, nil
+	}
+
 	// Check for string concatenation first (but only if it contains a literal string or multiple + operators)
 	// This prevents infinite recursion by only treating it as concat if there are multiple elements
-	if strings.Count(expr, "+") > 0 && (strings.Contains(expr, "\"") || hasMultiplePlusOutsideParens(expr)) {
+	if strings.Count(expr, "+") > 0 && (strings.Contains(expr, "\"") || strings.Contains(expr, "'") || hasMultiplePlusOutsideParens(expr)) {
 		if concatExpr, ok := tryParseConcatExpr(expr); ok {
 			return concatExpr, nil
 		}
@@ -168,8 +234,8 @@ func ParseExpression(expr string) (*Expression, error) {
 		return parseFunctionExpr(expr)
 	}
 
-	// Check for array indexing
-	if strings.Contains(expr, "[") && strings.Contains(expr, "]") {
+	// Check for array indexing (but not if the brackets are inside quotes)
+	if containsBracketOutsideQuotes(expr) {
 		return parseArrayIndexExpr(expr)
 	}
 
@@ -363,10 +429,53 @@ func parseBinaryExpr(expr string, operator string) (*Expression, error) {
 
 // parseArrayIndexExpr parses array indexing like ".spec.items[0]" or ".spec.items[.spec.index]"
 func parseArrayIndexExpr(expr string) (*Expression, error) {
-	openBracket := strings.Index(expr, "[")
-	closeBracket := strings.LastIndex(expr, "]")
+	// Find the opening bracket
+	openBracket := -1
+	closeBracket := -1
+	inDoubleQuotes := false
+	inSingleQuotes := false
 
-	if openBracket == -1 || closeBracket == -1 || closeBracket < openBracket {
+	// Find the first [ that's not inside quotes
+	for i := 0; i < len(expr); i++ {
+		ch := expr[i]
+		if ch == '"' && !inSingleQuotes {
+			inDoubleQuotes = !inDoubleQuotes
+		} else if ch == '\'' && !inDoubleQuotes {
+			inSingleQuotes = !inSingleQuotes
+		} else if ch == '[' && !inDoubleQuotes && !inSingleQuotes && openBracket == -1 {
+			openBracket = i
+		}
+	}
+
+	if openBracket == -1 {
+		return nil, fmt.Errorf("invalid array index expression: %s", expr)
+	}
+
+	// Find the matching closing bracket, respecting quotes
+	inDoubleQuotes = false
+	inSingleQuotes = false
+	depth := 1 // Start at 1 since we're already inside the first [
+
+	for i := openBracket + 1; i < len(expr); i++ { // Start after the opening bracket
+		ch := expr[i]
+		if ch == '"' && !inSingleQuotes {
+			inDoubleQuotes = !inDoubleQuotes
+		} else if ch == '\'' && !inDoubleQuotes {
+			inSingleQuotes = !inSingleQuotes
+		} else if !inDoubleQuotes && !inSingleQuotes {
+			if ch == '[' {
+				depth++
+			} else if ch == ']' {
+				depth--
+				if depth == 0 {
+					closeBracket = i
+					break
+				}
+			}
+		}
+	}
+
+	if closeBracket == -1 || closeBracket < openBracket {
 		return nil, fmt.Errorf("invalid array index expression: %s", expr)
 	}
 
@@ -394,14 +503,22 @@ func tryParseConcatExpr(expr string) (*Expression, bool) {
 	elements := []*Expression{}
 	current := ""
 	depth := 0
-	inQuotes := false
+	inDoubleQuotes := false
+	inSingleQuotes := false
 
 	for i := 0; i < len(expr); i++ {
 		ch := expr[i]
 
 		switch ch {
 		case '"':
-			inQuotes = !inQuotes
+			if !inSingleQuotes {
+				inDoubleQuotes = !inDoubleQuotes
+			}
+			current += string(ch)
+		case '\'':
+			if !inDoubleQuotes {
+				inSingleQuotes = !inSingleQuotes
+			}
 			current += string(ch)
 		case '(':
 			depth++
@@ -410,7 +527,7 @@ func tryParseConcatExpr(expr string) (*Expression, bool) {
 			depth--
 			current += string(ch)
 		case '+':
-			if depth == 0 && !inQuotes {
+			if depth == 0 && !inDoubleQuotes && !inSingleQuotes {
 				// This is a concatenation operator
 				if current != "" {
 					elem, err := parseNonConcatExpression(strings.TrimSpace(current))
@@ -519,6 +636,24 @@ func parseNonConcatExpression(expr string) (*Expression, error) {
 		Type: ExprLiteral,
 		Path: expr,
 	}, nil
+}
+
+// containsBracketOutsideQuotes checks if there's a [ or ] outside of quotes
+func containsBracketOutsideQuotes(expr string) bool {
+	inDoubleQuotes := false
+	inSingleQuotes := false
+
+	for i := 0; i < len(expr); i++ {
+		ch := expr[i]
+		if ch == '"' && !inSingleQuotes {
+			inDoubleQuotes = !inDoubleQuotes
+		} else if ch == '\'' && !inDoubleQuotes {
+			inSingleQuotes = !inSingleQuotes
+		} else if (ch == '[' || ch == ']') && !inDoubleQuotes && !inSingleQuotes {
+			return true
+		}
+	}
+	return false
 }
 
 // containsOperatorOutsideParens checks if an operator exists outside of parentheses
@@ -671,7 +806,8 @@ func parseResourceRef(expr string) (*Expression, error) {
 func parseResourceRefArgs(argsStr string) ([]string, error) {
 	args := []string{}
 	current := ""
-	inQuotes := false
+	inDoubleQuotes := false
+	inSingleQuotes := false
 	depth := 0
 
 	for i := 0; i < len(argsStr); i++ {
@@ -679,7 +815,14 @@ func parseResourceRefArgs(argsStr string) ([]string, error) {
 
 		switch ch {
 		case '"':
-			inQuotes = !inQuotes
+			if !inSingleQuotes {
+				inDoubleQuotes = !inDoubleQuotes
+			}
+			current += string(ch)
+		case '\'':
+			if !inDoubleQuotes {
+				inSingleQuotes = !inSingleQuotes
+			}
 			current += string(ch)
 		case '(':
 			depth++
@@ -688,7 +831,7 @@ func parseResourceRefArgs(argsStr string) ([]string, error) {
 			depth--
 			current += string(ch)
 		case ',':
-			if !inQuotes && depth == 0 {
+			if !inDoubleQuotes && !inSingleQuotes && depth == 0 {
 				// End of argument
 				args = append(args, strings.TrimSpace(current))
 				current = ""

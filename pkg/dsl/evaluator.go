@@ -63,6 +63,8 @@ func (e *Evaluator) Evaluate(expr *Expression) (interface{}, error) {
 		return e.evaluateConcat(expr)
 	case ExprResourceRef:
 		return e.evaluateResourceRef(expr.ResourceRef)
+	case ExprUnary:
+		return e.evaluateUnary(expr)
 	default:
 		return nil, fmt.Errorf("unknown expression type: %d", expr.Type)
 	}
@@ -263,6 +265,14 @@ func (e *Evaluator) evaluateBinary(expr *Expression) (interface{}, error) {
 
 	// Arithmetic operators
 	case "+":
+		// Check if either operand is a string - if so, do string concatenation
+		_, leftIsStr := left.(string)
+		_, rightIsStr := right.(string)
+		if leftIsStr || rightIsStr {
+			// String concatenation
+			return fmt.Sprintf("%v", left) + fmt.Sprintf("%v", right), nil
+		}
+		// Numeric addition
 		return performArithmetic(left, right, "+")
 	case "-":
 		return performArithmetic(left, right, "-")
@@ -278,9 +288,59 @@ func (e *Evaluator) evaluateBinary(expr *Expression) (interface{}, error) {
 	}
 }
 
+// evaluateUnary evaluates unary expressions (!, -, etc.)
+func (e *Evaluator) evaluateUnary(expr *Expression) (interface{}, error) {
+	// Evaluate the operand
+	operand, err := e.Evaluate(expr.Operand)
+	if err != nil {
+		// For NOT operator, treat missing fields as false/nil
+		if expr.Operator == "!" {
+			operand = nil
+		} else {
+			return nil, err
+		}
+	}
+
+	switch expr.Operator {
+	case "!":
+		// Logical NOT
+		return !isTruthy(operand), nil
+	case "-":
+		// Unary minus
+		val, err := toFloat64(operand)
+		if err != nil {
+			return nil, fmt.Errorf("cannot negate non-numeric value: %v", operand)
+		}
+		return -val, nil
+	default:
+		return nil, fmt.Errorf("unknown unary operator: %s", expr.Operator)
+	}
+}
+
+// isTruthy determines if a value is truthy in boolean context
+func isTruthy(val interface{}) bool {
+	if val == nil {
+		return false
+	}
+
+	switch v := val.(type) {
+	case bool:
+		return v
+	case string:
+		return v != ""
+	case int, int32, int64:
+		return v != 0
+	case float32, float64:
+		return v != 0.0
+	default:
+		// Non-zero/non-nil values are truthy
+		return true
+	}
+}
+
 // evaluateArrayIndex evaluates array indexing expressions
 func (e *Evaluator) evaluateArrayIndex(expr *Expression) (interface{}, error) {
-	// Evaluate the base path to get the array
+	// Evaluate the base path to get the array/map
 	baseValue, err := e.evaluatePath(expr.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate array path: %w", err)
@@ -292,31 +352,30 @@ func (e *Evaluator) evaluateArrayIndex(expr *Expression) (interface{}, error) {
 		return nil, fmt.Errorf("failed to evaluate array index: %w", err)
 	}
 
-	// Convert index to int
-	index, err := toInt(indexValue)
-	if err != nil {
-		return nil, fmt.Errorf("array index must be an integer: %w", err)
-	}
-
-	// Access the array element
+	// Access the array/map element
 	val := reflect.ValueOf(baseValue)
 
 	// Handle different collection types
 	switch val.Kind() {
-	case reflect.Slice, reflect.Array:
-		if index < 0 || index >= val.Len() {
-			return nil, fmt.Errorf("array index %d out of bounds (length %d)", index, val.Len())
-		}
-		return val.Index(index).Interface(), nil
-
 	case reflect.Map:
-		// For maps, try to use the index as a key
+		// For maps, use the index value directly as a key (can be string or other type)
 		keyVal := reflect.ValueOf(indexValue)
 		mapVal := val.MapIndex(keyVal)
 		if !mapVal.IsValid() {
 			return nil, fmt.Errorf("key %v not found in map", indexValue)
 		}
 		return mapVal.Interface(), nil
+
+	case reflect.Slice, reflect.Array:
+		// For arrays/slices, convert index to int
+		index, err := toInt(indexValue)
+		if err != nil {
+			return nil, fmt.Errorf("array index must be an integer: %w", err)
+		}
+		if index < 0 || index >= val.Len() {
+			return nil, fmt.Errorf("array index %d out of bounds (length %d)", index, val.Len())
+		}
+		return val.Index(index).Interface(), nil
 
 	default:
 		return nil, fmt.Errorf("cannot index into type %s", val.Kind())
@@ -481,8 +540,11 @@ func (e *Evaluator) evaluateLiteral(value string) (interface{}, error) {
 		return false, nil
 	}
 
-	// Remove quotes if present
+	// Remove quotes if present (support both double and single quotes)
 	if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+		return value[1 : len(value)-1], nil
+	}
+	if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
 		return value[1 : len(value)-1], nil
 	}
 
@@ -522,6 +584,24 @@ func (e *Evaluator) registerBuiltinFunctions() {
 		old := fmt.Sprintf("%v", args[1])
 		new := fmt.Sprintf("%v", args[2])
 		return strings.ReplaceAll(str, old, new), nil
+	})
+
+	e.RegisterFunction("trimPrefix", func(args ...interface{}) (interface{}, error) {
+		if len(args) != 2 {
+			return nil, fmt.Errorf("trimPrefix() requires 2 arguments")
+		}
+		str := fmt.Sprintf("%v", args[0])
+		prefix := fmt.Sprintf("%v", args[1])
+		return strings.TrimPrefix(str, prefix), nil
+	})
+
+	e.RegisterFunction("trimSuffix", func(args ...interface{}) (interface{}, error) {
+		if len(args) != 2 {
+			return nil, fmt.Errorf("trimSuffix() requires 2 arguments")
+		}
+		str := fmt.Sprintf("%v", args[0])
+		suffix := fmt.Sprintf("%v", args[1])
+		return strings.TrimSuffix(str, suffix), nil
 	})
 
 	// Hash functions
