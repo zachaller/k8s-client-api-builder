@@ -188,6 +188,14 @@ func ParseExpression(expr string) (*Expression, error) {
 		}, nil
 	}
 
+	// Check for boolean literals BEFORE treating as identifier
+	if expr == "true" || expr == "false" {
+		return &Expression{
+			Type: ExprLiteral,
+			Path: expr,
+		}, nil
+	}
+
 	// Check if it's a loop variable path (e.g., "envVar.name" or just "envVar")
 	// These don't start with '.' but should be treated as paths if they contain dots or are simple identifiers
 	if !strings.ContainsAny(expr, " +-*/%\"") && (strings.Contains(expr, ".") || isIdentifier(expr)) {
@@ -485,6 +493,14 @@ func parseNonConcatExpression(expr string) (*Expression, error) {
 	if strings.HasPrefix(expr, ".") {
 		return &Expression{
 			Type: ExprPath,
+			Path: expr,
+		}, nil
+	}
+
+	// Check for boolean literals BEFORE treating as identifier
+	if expr == "true" || expr == "false" {
+		return &Expression{
+			Type: ExprLiteral,
 			Path: expr,
 		}, nil
 	}
